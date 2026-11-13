@@ -20,8 +20,9 @@ The escrow contract [`impactflow-escrow-xyz.testnet`](https://testnet.nearblocks
 | 6. **Approve and release payout** | Reviewer | [`4cHHMk…`](https://testnet.nearblocks.io/txns/4cHHMkS8WauiwEX5Tsv26y9frNgq3Uhy3Lkruq3ZTzaT) |
 | Wallet-signed campaign + donations from a separate user account | `impactflow-daniel.testnet` | [`DVnp9B…`](https://testnet.nearblocks.io/txns/DVnp9BSFmFf6KqCnrgKCW8shTeDjFoGbejbxyYajUeMu), [`EUgDNS…`](https://testnet.nearblocks.io/txns/EUgDNS6P1fyLbduWN2XiTiUwuMBAfDtEjse5sWFWuteC) |
 | Upgrade to v2 (ongoing funds) + state-preserving migration | Contract / reviewer | [`5RtMdN…`](https://testnet.nearblocks.io/txns/5RtMdNWrsEk6LqxtN74raMkJiPwQR2HCLWWPCEspGSpT), [`3dTZFF…`](https://testnet.nearblocks.io/txns/3dTZFFnTPNLKWyiQbs5qStL9cb1HezjrydanfJD6hBPs) |
+| Upgrade to v3 (campaign hold dates) + state-preserving migration | Contract / reviewer | [`9dYo1D…`](https://testnet.nearblocks.io/txns/9dYo1DbiFxuZPWTmaH1YUUqccmJBuUEG8QivRKkyPRdW), [`HiCh4n…`](https://testnet.nearblocks.io/txns/HiCh4nkPasWq5zzRtfmHwmhgzMvaU273dvtohGSxExcE) |
 
-**The deployed code is the code in this repo.** The on-chain code hash `9uDNNgyLHaUcd76u5mE9oAptsb7UoPBgASAmxM5v1Apo` matches a release build of [`contract/src/lib.rs`](contract/src/lib.rs). [Reproduce it below](#verify-the-deployed-contract).
+**The deployed code is the code in this repo.** The on-chain code hash `5v9deX8YbbDr2q2PaP4Jp8Rq9ssc7tUq3nohHGJwHfzT` matches a release build of [`contract/src/lib.rs`](contract/src/lib.rs). [Reproduce it below](#verify-the-deployed-contract).
 
 ![Live on-chain campaigns read from NEAR Testnet](docs/screenshots/escrow-testnet.png)
 

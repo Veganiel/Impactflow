@@ -62,7 +62,7 @@
     {
       "id": "near-escrow-contract",
       "status": "deployed-and-initialized-on-testnet",
-      "evidence": "NEAR Testnet account impactflow-escrow-xyz.testnet runs code hash 9uDNNgyLHaUcd76u5mE9oAptsb7UoPBgASAmxM5v1Apo, which matches a release build of contract/src/lib.rs. On-chain history shows successful create_campaign, approve_campaign, donate (including from a separate user account), propose_milestone, submit_milestone_evidence and approve_and_release transactions, plus the v2 upgrade and migrate_v2.",
+      "evidence": "NEAR Testnet account impactflow-escrow-xyz.testnet runs code hash 5v9deX8YbbDr2q2PaP4Jp8Rq9ssc7tUq3nohHGJwHfzT, which matches a release build of contract/src/lib.rs. On-chain history shows successful create_campaign, approve_campaign, donate (including from a separate user account), propose_milestone, submit_milestone_evidence and approve_and_release transactions, plus the v2 upgrade (migrate_v2) and the v3 upgrade adding per-campaign hold dates (migrate_v3, 13 November 2026). Donations close at a campaign's hold date; staking is only allowed while at least three days remain, and anyone can force the unstake in that final window.",
       "limitations": [
         "Milestone evidence is a submitted link; the contract does not verify real-world impact.",
         "The contract is on Testnet and has not been independently audited."
