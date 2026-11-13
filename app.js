@@ -416,7 +416,9 @@ $('#onchainCampaign').addEventListener('click',async e=>{
   status.textContent=`Donation failed or cancelled: ${error.message}`;
   btn.disabled=false;btn.textContent=`Donate ${amount} NEAR`;
  }
-});const renderIntentSummary=q=>`<strong>Live quote received</strong><br>Input: ${esc(q.amountInFormatted||q.amountIn||'Not supplied')}<br>Expected output: ${esc(q.amountOutFormatted||q.amountOut||'Not supplied')}<br>Minimum output: ${esc(q.minAmountOutFormatted||q.minAmountOut||'Not supplied')}<br>Estimated time: ${esc(q.timeEstimate?`${Math.ceil(q.timeEstimate/60)} min`:'Not supplied')}`;
+});const fromBaseUnits=(raw,decimals)=>{const d=Number(decimals)||0;if(!/^\d+$/.test(String(raw??'')))return null;const s=String(raw).padStart(d+1,'0');const whole=s.slice(0,s.length-d),frac=s.slice(s.length-d).replace(/0+$/,'');return frac?`${whole}.${frac}`:whole;};
+const assetSymbol=sel=>($(sel)?.selectedOptions[0]?.textContent||'').split('·')[0].trim();
+const renderIntentSummary=q=>{const inSym=assetSymbol('#originAsset'),outSym=assetSymbol('#destinationAsset'),outDec=$('#destinationAsset')?.selectedOptions[0]?.dataset.decimals;const trim6=v=>/^\d+\.\d{7,}$/.test(String(v))?String(v).replace(/(\.\d{6})\d+$/,'$1'):v;const withSym=(v,sym)=>v&&v!=='Not supplied'&&sym?`${trim6(v)} ${sym}`:v;const minOut=q.minAmountOutFormatted||fromBaseUnits(q.minAmountOut,outDec)||q.minAmountOut||'Not supplied';return `<strong>Live quote received</strong><br>Input: ${esc(withSym(q.amountInFormatted||q.amountIn||'Not supplied',inSym))}<br>Expected output: ${esc(withSym(q.amountOutFormatted||q.amountOut||'Not supplied',outSym))}${q.amountOutUsd?` <span style="opacity:.75">(≈ $${esc(Number(q.amountOutUsd).toFixed(2))})</span>`:''}<br>Minimum output: ${esc(withSym(minOut,outSym))}<br>Estimated time: ${esc(q.timeEstimate?`${Math.ceil(q.timeEstimate/60)} min`:'Not supplied')}`;};
 
 $('#getQuoteBtn').addEventListener('click',async()=>{
  const result=$('#quoteResult'),originAsset=$('#originAsset').value,destinationAsset=$('#destinationAsset').value;
