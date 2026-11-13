@@ -13,6 +13,12 @@ const POOL_CALL_GAS: Gas = Gas::from_tgas(35);
 // Its own gas budget must cover both nested receipts plus callback execution.
 const WITHDRAW_CALLBACK_GAS: Gas = Gas::from_tgas(80);
 const REQUIRED_UNSTAKE_EPOCHS: u64 = 4;
+const DAY_MS: u64 = 24 * 60 * 60 * 1000;
+/// Staking must leave enough time to unstake (4 epochs, roughly 2 days) and withdraw before the hold date.
+const STAKE_EXIT_BUFFER_MS: u64 = 3 * DAY_MS;
+/// A campaign's hold date must be at least one day and at most three years in the future when set.
+const MIN_HOLD_MS: u64 = DAY_MS;
+const MAX_HOLD_MS: u64 = 3 * 365 * DAY_MS;
 
 #[derive(BorshSerialize, BorshDeserialize, Clone)]
 #[borsh(crate = "near_sdk::borsh")]
@@ -76,6 +82,24 @@ struct LegacyEscrowV2 {
     campaign_staking_rewards: LookupMap<u64, u128>,
 }
 
+/// State layout deployed on Testnet before per-campaign hold dates (v2 with open-fund threshold).
+#[derive(BorshSerialize, BorshDeserialize)]
+#[borsh(crate = "near_sdk::borsh")]
+struct LegacyEscrowV3 {
+    admin: AccountId,
+    next_campaign_id: u64,
+    campaigns: LookupMap<u64, Campaign>,
+    staking_pool: Option<AccountId>,
+    stake_campaign_id: Option<u64>,
+    staked_principal: u128,
+    stake_state: StakeState,
+    unstake_epoch: u64,
+    total_escrow: u128,
+    stake_rewards: u128,
+    campaign_staking_rewards: LookupMap<u64, u128>,
+    minimum_open_fund_stake: u128,
+}
+
 #[derive(near_sdk::serde::Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 struct PoolAccountView {
@@ -88,6 +112,7 @@ struct PoolAccountView {
 enum StorageKey {
     Campaigns,
     CampaignStakingRewards,
+    CampaignHoldUntil,
 }
 
 #[near(contract_state)]
@@ -106,6 +131,8 @@ pub struct ImpactFlowEscrow {
     campaign_staking_rewards: LookupMap<u64, u128>,
     // Reviewer-set NEAR equivalent of $1,000. Zero keeps open-fund staking disabled.
     minimum_open_fund_stake: u128,
+    // Per-campaign date (Unix ms) until which donations may be collected and held.
+    campaign_hold_until: LookupMap<u64, u64>,
 }
 
 #[near]
@@ -125,6 +152,7 @@ impl ImpactFlowEscrow {
             stake_rewards: 0,
             campaign_staking_rewards: LookupMap::new(StorageKey::CampaignStakingRewards),
             minimum_open_fund_stake: 0,
+            campaign_hold_until: LookupMap::new(StorageKey::CampaignHoldUntil),
         }
     }
 
@@ -153,6 +181,7 @@ impl ImpactFlowEscrow {
             stake_rewards: 0,
             campaign_staking_rewards: LookupMap::new(StorageKey::CampaignStakingRewards),
             minimum_open_fund_stake: 0,
+            campaign_hold_until: LookupMap::new(StorageKey::CampaignHoldUntil),
         }
     }
 
@@ -174,6 +203,29 @@ impl ImpactFlowEscrow {
             stake_rewards: old.stake_rewards,
             campaign_staking_rewards: old.campaign_staking_rewards,
             minimum_open_fund_stake: 0,
+            campaign_hold_until: LookupMap::new(StorageKey::CampaignHoldUntil),
+        }
+    }
+
+    /// Add per-campaign hold dates while preserving all campaigns, staking and accounting state.
+    #[init(ignore_state)]
+    pub fn migrate_v3() -> Self {
+        let old: LegacyEscrowV3 = env::state_read().expect("Current escrow state is missing or already migrated");
+        assert_eq!(env::predecessor_account_id(), old.admin, "Only the contract reviewer may migrate state");
+        Self {
+            admin: old.admin,
+            next_campaign_id: old.next_campaign_id,
+            campaigns: old.campaigns,
+            staking_pool: old.staking_pool,
+            stake_campaign_id: old.stake_campaign_id,
+            staked_principal: old.staked_principal,
+            stake_state: old.stake_state,
+            unstake_epoch: old.unstake_epoch,
+            total_escrow: old.total_escrow,
+            stake_rewards: old.stake_rewards,
+            campaign_staking_rewards: old.campaign_staking_rewards,
+            minimum_open_fund_stake: old.minimum_open_fund_stake,
+            campaign_hold_until: LookupMap::new(StorageKey::CampaignHoldUntil),
         }
     }
 
@@ -199,8 +251,10 @@ impl ImpactFlowEscrow {
         title: String,
         description: String,
         goal: U128,
+        hold_until_ms: u64,
     ) -> u64 {
         let owner = env::predecessor_account_id();
+        assert_valid_hold_date(hold_until_ms);
         assert!(title.trim().len() >= 8 && title.len() <= 120, "Title must be 8-120 chars");
         assert!(description.trim().len() >= 30 && description.len() <= 2_000, "Description must be 30-2000 chars");
         // A zero goal marks an ongoing fund with no fundraising cap.
@@ -221,7 +275,17 @@ impl ImpactFlowEscrow {
             milestones: vec![],
         };
         self.campaigns.insert(id, campaign);
+        self.campaign_hold_until.insert(id, hold_until_ms);
         id
+    }
+
+    /// Campaigns created before hold dates existed can set one once. It cannot be changed afterwards.
+    pub fn set_campaign_hold_until(&mut self, campaign_id: u64, hold_until_ms: u64) {
+        let owner = self.campaigns.get(&campaign_id).expect("Campaign not found").owner.clone();
+        assert_eq!(env::predecessor_account_id(), owner, "Only campaign owner");
+        assert!(self.campaign_hold_until.get(&campaign_id).is_none(), "Hold date is already set and cannot be changed");
+        assert_valid_hold_date(hold_until_ms);
+        self.campaign_hold_until.insert(campaign_id, hold_until_ms);
     }
 
     /// Activate a campaign after the platform has reviewed the organization and proposal.
@@ -240,6 +304,9 @@ impl ImpactFlowEscrow {
         assert!(amount > 0, "Attach a positive NEAR amount");
         let mut campaign = self.campaigns.get(&campaign_id).cloned().expect("Campaign not found");
         assert!(campaign.active, "Campaign is not active");
+        if let Some(hold_until) = self.campaign_hold_until.get(&campaign_id) {
+            assert!(env::block_timestamp_ms() < *hold_until, "The donation period for this campaign has ended");
+        }
         campaign.raised = campaign.raised.checked_add(amount).expect("Raised amount overflow");
         campaign.remaining_escrow = campaign.remaining_escrow.checked_add(amount).expect("Escrow overflow");
         self.total_escrow = self.total_escrow.checked_add(amount).expect("Escrow total overflow");
@@ -253,6 +320,11 @@ impl ImpactFlowEscrow {
         let campaign = self.campaigns.get(&campaign_id).cloned().expect("Campaign not found");
         assert_eq!(env::predecessor_account_id(), campaign.owner, "Only campaign owner");
         assert!(campaign.active, "Campaign is not active");
+        let hold_until = *self.campaign_hold_until.get(&campaign_id).expect("Set a campaign hold date before staking");
+        assert!(
+            env::block_timestamp_ms().saturating_add(STAKE_EXIT_BUFFER_MS) <= hold_until,
+            "Too close to the campaign hold date: staking needs at least 3 days to unstake and withdraw"
+        );
         if campaign.goal == 0 {
             assert!(self.minimum_open_fund_stake > 0, "Reviewer has not configured the open-fund staking threshold");
             assert!(campaign.remaining_escrow >= self.minimum_open_fund_stake, "Open fund has not reached the reviewer-set staking threshold");
@@ -296,7 +368,10 @@ impl ImpactFlowEscrow {
     /// Start unbonding when the project needs cash. NEAR pools generally require four epochs before withdrawal.
     pub fn unstake_campaign_escrow(&mut self, campaign_id: u64) -> Promise {
         let campaign = self.campaigns.get(&campaign_id).cloned().expect("Campaign not found");
-        assert_eq!(env::predecessor_account_id(), campaign.owner, "Only campaign owner");
+        assert!(
+            env::predecessor_account_id() == campaign.owner || self.exit_window_open(campaign_id),
+            "Only the campaign owner can unstake before the exit window opens"
+        );
         assert_eq!(self.stake_campaign_id, Some(campaign_id), "Campaign has no staked position");
         assert_eq!(self.stake_state, StakeState::Staked, "Campaign is not ready to unstake");
         let pool = self.staking_pool.clone().expect("Staking pool is not configured");
@@ -322,7 +397,10 @@ impl ImpactFlowEscrow {
     /// After four epochs, query the pool's withdrawable balance and retrieve it.
     pub fn withdraw_campaign_escrow(&mut self, campaign_id: u64) -> Promise {
         let campaign = self.campaigns.get(&campaign_id).cloned().expect("Campaign not found");
-        assert_eq!(env::predecessor_account_id(), campaign.owner, "Only campaign owner");
+        assert!(
+            env::predecessor_account_id() == campaign.owner || self.exit_window_open(campaign_id),
+            "Only the campaign owner can withdraw before the exit window opens"
+        );
         assert_eq!(self.stake_campaign_id, Some(campaign_id), "Campaign has no staking position");
         assert_eq!(self.stake_state, StakeState::Unstaked, "Campaign has not finished unstaking");
         assert!(env::epoch_height() >= self.unstake_epoch + REQUIRED_UNSTAKE_EPOCHS, "Staking pool withdrawal is still locked");
@@ -472,6 +550,7 @@ impl ImpactFlowEscrow {
         self.campaigns.get(&campaign_id).cloned().map(|campaign| {
             let id = campaign.id;
             let mut view = CampaignView::from(campaign);
+            view.hold_until_ms = self.campaign_hold_until.get(&id).copied().unwrap_or(0);
             view.staking_rewards = U128(self.campaign_staking_rewards.get(&id).copied().unwrap_or(0));
             if self.stake_campaign_id == Some(id) {
                 view.staked_escrow = U128(self.staked_principal);
@@ -492,6 +571,17 @@ impl ImpactFlowEscrow {
             required_unstake_epochs: REQUIRED_UNSTAKE_EPOCHS,
             current_epoch: env::epoch_height(),
             minimum_open_fund_stake: U128(self.minimum_open_fund_stake),
+            stake_exit_buffer_ms: STAKE_EXIT_BUFFER_MS,
+            now_ms: env::block_timestamp_ms(),
+        }
+    }
+
+    /// True once a campaign is within the exit buffer of its hold date: anyone may then unstake/withdraw
+    /// so staked donations are never held past the date the campaign committed to.
+    fn exit_window_open(&self, campaign_id: u64) -> bool {
+        match self.campaign_hold_until.get(&campaign_id) {
+            Some(hold_until) => env::block_timestamp_ms().saturating_add(STAKE_EXIT_BUFFER_MS) >= *hold_until,
+            None => false,
         }
     }
 
@@ -521,6 +611,8 @@ pub struct CampaignView {
     pub staking_rewards: U128,
     pub stake_status: String,
     pub unstake_epoch: u64,
+    /// Unix ms until which donations may be collected and held; 0 = not set (legacy campaign).
+    pub hold_until_ms: u64,
 }
 
 #[derive(near_sdk::serde::Serialize)]
@@ -534,6 +626,14 @@ pub struct StakingConfigView {
     pub required_unstake_epochs: u64,
     pub current_epoch: u64,
     pub minimum_open_fund_stake: U128,
+    pub stake_exit_buffer_ms: u64,
+    pub now_ms: u64,
+}
+
+fn assert_valid_hold_date(hold_until_ms: u64) {
+    let now = env::block_timestamp_ms();
+    assert!(hold_until_ms >= now.saturating_add(MIN_HOLD_MS), "Hold date must be at least one day in the future");
+    assert!(hold_until_ms <= now.saturating_add(MAX_HOLD_MS), "Hold date must be within three years");
 }
 
 fn stake_state_name(state: &StakeState) -> &'static str {
@@ -573,6 +673,7 @@ impl From<Campaign> for CampaignView {
             staking_rewards: U128(0),
             stake_status: "idle".to_string(),
             unstake_epoch: 0,
+            hold_until_ms: 0,
             milestones: c.milestones.into_iter().map(|m| MilestoneView {
                 title: m.title,
                 evidence_uri: m.evidence_uri,
@@ -600,6 +701,9 @@ mod tests {
     #[allow(deprecated)]
     use near_sdk::test_utils::testing_env_with_promise_results;
 
+    const HOLD: u64 = START_MS + 30 * DAY_MS;
+    const START_MS: u64 = 1_800_000_000_000;
+
     fn account(value: &str) -> AccountId {
         value.parse().expect("valid test account")
     }
@@ -612,6 +716,7 @@ mod tests {
         let predecessor = account(predecessor);
         let context = VMContextBuilder::new()
             .current_account_id(account("impactflow.testnet"))
+            .block_timestamp(START_MS * 1_000_000)
             .predecessor_account_id(predecessor.clone())
             .signer_account_id(predecessor)
             .attached_deposit(deposit)
@@ -624,6 +729,7 @@ mod tests {
         let predecessor = account(predecessor);
         let context = VMContextBuilder::new()
             .current_account_id(account("impactflow.testnet"))
+            .block_timestamp(START_MS * 1_000_000)
             .predecessor_account_id(predecessor.clone())
             .signer_account_id(predecessor)
             .build();
@@ -635,6 +741,7 @@ mod tests {
         let predecessor = account(predecessor);
         let context = VMContextBuilder::new()
             .current_account_id(account("impactflow.testnet"))
+            .block_timestamp(START_MS * 1_000_000)
             .predecessor_account_id(predecessor.clone())
             .signer_account_id(predecessor)
             .epoch_height(epoch_height)
@@ -650,6 +757,7 @@ mod tests {
         let predecessor = account(predecessor);
         let context = VMContextBuilder::new()
             .current_account_id(account("impactflow.testnet"))
+            .block_timestamp(START_MS * 1_000_000)
             .predecessor_account_id(predecessor.clone())
             .signer_account_id(predecessor)
             .epoch_height(epoch_height)
@@ -669,6 +777,7 @@ mod tests {
             "Restore local habitats".to_string(),
             "Funding native habitat restoration and measurable biodiversity work.".to_string(),
             U128(10),
+            HOLD,
         );
         set_context("reviewer.testnet", NearToken::from_yoctonear(0));
         contract.approve_campaign(id);
@@ -683,6 +792,7 @@ mod tests {
             "Restore local habitats".to_string(),
             "Funding native habitat restoration and measurable biodiversity work.".to_string(),
             U128(10),
+            HOLD,
         );
         let campaign = contract.get_campaign(id).expect("campaign exists");
         assert_eq!(campaign.owner, account("ngo.testnet"));
@@ -695,7 +805,7 @@ mod tests {
     fn only_reviewer_can_approve_campaign() {
         let mut contract = initialized();
         set_context("ngo.testnet", NearToken::from_yoctonear(0));
-        let id = contract.create_campaign("Restore local habitats".to_string(), "Funding native habitat restoration and measurable biodiversity work.".to_string(), U128(10));
+        let id = contract.create_campaign("Restore local habitats".to_string(), "Funding native habitat restoration and measurable biodiversity work.".to_string(), U128(10), HOLD);
         set_context("attacker.testnet", NearToken::from_yoctonear(0));
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| contract.approve_campaign(id)));
         assert!(result.is_err());
@@ -705,7 +815,7 @@ mod tests {
     fn donations_are_rejected_before_campaign_approval() {
         let mut contract = initialized();
         set_context("ngo.testnet", NearToken::from_yoctonear(0));
-        let id = contract.create_campaign("Restore local habitats".to_string(), "Funding native habitat restoration and measurable biodiversity work.".to_string(), U128(10));
+        let id = contract.create_campaign("Restore local habitats".to_string(), "Funding native habitat restoration and measurable biodiversity work.".to_string(), U128(10), HOLD);
         set_context("donor.testnet", NearToken::from_near(1));
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| contract.donate(id)));
         assert!(result.is_err());
@@ -815,6 +925,7 @@ mod tests {
             "Restore local habitats".to_string(),
             "Funding native habitat restoration and measurable biodiversity work.".to_string(),
             U128(10),
+            HOLD,
         );
         set_context("reviewer.testnet", NearToken::from_yoctonear(0));
         contract.approve_campaign(id);
@@ -1087,4 +1198,200 @@ mod tests {
         assert!(result.is_err());
     }
 
+
+    fn set_context_at(predecessor: &str, deposit: NearToken, balance: NearToken, now_ms: u64) {
+        let predecessor = account(predecessor);
+        let context = VMContextBuilder::new()
+            .current_account_id(account("impactflow.testnet"))
+            .block_timestamp(now_ms * 1_000_000)
+            .predecessor_account_id(predecessor.clone())
+            .signer_account_id(predecessor)
+            .attached_deposit(deposit)
+            .account_balance(balance)
+            .build();
+        testing_env!(context);
+    }
+
+    fn funded_campaign_with_pool(contract: &mut ImpactFlowEscrow, hold_until_ms: u64) -> u64 {
+        set_context("ngo.testnet", NearToken::from_yoctonear(0));
+        let id = contract.create_campaign(
+            "Restore local habitats".to_string(),
+            "Funding native habitat restoration and measurable biodiversity work.".to_string(),
+            U128(10),
+            hold_until_ms,
+        );
+        set_context("reviewer.testnet", NearToken::from_yoctonear(0));
+        contract.approve_campaign(id);
+        contract.set_staking_pool(account("pool.testnet"));
+        set_context("donor.testnet", NearToken::from_yoctonear(10));
+        contract.donate(id);
+        id
+    }
+
+    #[test]
+    fn campaign_requires_a_hold_date_between_one_day_and_three_years() {
+        let mut contract = initialized();
+        set_context("ngo.testnet", NearToken::from_yoctonear(0));
+        for bad in [START_MS, START_MS + DAY_MS - 1, START_MS + MAX_HOLD_MS + 1] {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                contract.create_campaign("Restore local habitats".to_string(), "Funding native habitat restoration and measurable biodiversity work.".to_string(), U128(10), bad);
+            }));
+            assert!(result.is_err(), "hold date {bad} should be rejected");
+        }
+        let id = contract.create_campaign("Restore local habitats".to_string(), "Funding native habitat restoration and measurable biodiversity work.".to_string(), U128(10), HOLD);
+        assert_eq!(contract.get_campaign(id).unwrap().hold_until_ms, HOLD);
+    }
+
+    #[test]
+    fn donations_close_at_the_hold_date() {
+        let mut contract = initialized();
+        let id = create_approved_campaign(&mut contract);
+        set_context_at("donor.testnet", NearToken::from_near(1), NearToken::from_yoctonear(0), HOLD - 1);
+        contract.donate(id);
+        set_context_at("donor.testnet", NearToken::from_near(1), NearToken::from_yoctonear(0), HOLD);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| contract.donate(id)));
+        assert!(result.is_err());
+        assert_eq!(contract.get_campaign(id).unwrap().raised.0, NearToken::from_near(1).as_yoctonear());
+    }
+
+    #[test]
+    fn staking_is_rejected_when_the_exit_buffer_no_longer_fits_before_the_hold_date() {
+        let mut contract = initialized();
+        let hold = START_MS + 10 * DAY_MS;
+        let id = funded_campaign_with_pool(&mut contract, hold);
+        // Exactly three days before the hold date still fits.
+        set_context_at("ngo.testnet", NearToken::from_yoctonear(0), NearToken::from_near(1), hold - STAKE_EXIT_BUFFER_MS);
+        let _ = contract.stake_campaign_escrow(id, U128(5));
+        assert_eq!(contract.stake_state, StakeState::Staking);
+
+        let mut late = initialized();
+        let late_id = funded_campaign_with_pool(&mut late, hold);
+        set_context_at("ngo.testnet", NearToken::from_yoctonear(0), NearToken::from_near(1), hold - STAKE_EXIT_BUFFER_MS + 1);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = late.stake_campaign_escrow(late_id, U128(5));
+        }));
+        assert!(result.is_err());
+        assert_eq!(late.stake_state, StakeState::Idle);
+    }
+
+    #[test]
+    fn campaigns_without_a_hold_date_cannot_stake_until_the_owner_sets_one_once() {
+        let mut contract = initialized();
+        let id = funded_campaign_with_pool(&mut contract, HOLD);
+        // Simulate a campaign created before hold dates existed.
+        contract.campaign_hold_until.remove(&id);
+        set_context_with_balance("ngo.testnet", NearToken::from_yoctonear(0), NearToken::from_near(1));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = contract.stake_campaign_escrow(id, U128(5));
+        }));
+        assert!(result.is_err());
+
+        set_context("attacker.testnet", NearToken::from_yoctonear(0));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| contract.set_campaign_hold_until(id, HOLD)));
+        assert!(result.is_err());
+
+        set_context("ngo.testnet", NearToken::from_yoctonear(0));
+        contract.set_campaign_hold_until(id, HOLD);
+        assert_eq!(contract.get_campaign(id).unwrap().hold_until_ms, HOLD);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| contract.set_campaign_hold_until(id, HOLD + DAY_MS)));
+        assert!(result.is_err(), "hold date must not be extendable");
+    }
+
+    #[test]
+    fn anyone_can_unstake_and_withdraw_once_the_exit_window_opens() {
+        let mut contract = initialized();
+        let hold = START_MS + 10 * DAY_MS;
+        let id = funded_campaign_with_pool(&mut contract, hold);
+        contract.stake_campaign_id = Some(id);
+        contract.staked_principal = 5;
+        contract.stake_state = StakeState::Staked;
+
+        // Before the exit window, strangers cannot force an unstake.
+        set_context_at("anyone.testnet", NearToken::from_yoctonear(0), NearToken::from_yoctonear(0), hold - STAKE_EXIT_BUFFER_MS - 1);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = contract.unstake_campaign_escrow(id);
+        }));
+        assert!(result.is_err());
+        assert_eq!(contract.stake_state, StakeState::Staked);
+
+        // Once the remaining time only covers the exit, anyone may start it.
+        set_context_at("anyone.testnet", NearToken::from_yoctonear(0), NearToken::from_yoctonear(0), hold - STAKE_EXIT_BUFFER_MS);
+        let _ = contract.unstake_campaign_escrow(id);
+        assert_eq!(contract.stake_state, StakeState::Unstaking);
+
+        contract.stake_state = StakeState::Unstaked;
+        contract.unstake_epoch = 0;
+        let predecessor = account("anyone.testnet");
+        let context = VMContextBuilder::new()
+            .current_account_id(account("impactflow.testnet"))
+            .block_timestamp(hold * 1_000_000)
+            .epoch_height(REQUIRED_UNSTAKE_EPOCHS)
+            .predecessor_account_id(predecessor.clone())
+            .signer_account_id(predecessor)
+            .build();
+        testing_env!(context);
+        let _ = contract.withdraw_campaign_escrow(id);
+        assert_eq!(contract.stake_state, StakeState::CheckingWithdraw);
+    }
+
+    #[test]
+    fn migration_v3_preserves_state_and_starts_without_hold_dates() {
+        set_context("reviewer.testnet", NearToken::from_yoctonear(0));
+        let mut campaigns = LookupMap::new(StorageKey::Campaigns);
+        campaigns.insert(0, Campaign {
+            id: 0,
+            owner: account("ngo.testnet"),
+            recipient: account("ngo.testnet"),
+            title: "Restore local habitats".to_string(),
+            description: "Funding native habitat restoration and measurable biodiversity work.".to_string(),
+            goal: 10,
+            raised: 7,
+            remaining_escrow: 7,
+            active: true,
+            milestones: vec![],
+        });
+        env::state_write(&LegacyEscrowV3 {
+            admin: account("reviewer.testnet"),
+            next_campaign_id: 1,
+            campaigns,
+            staking_pool: Some(account("pool.testnet")),
+            stake_campaign_id: None,
+            staked_principal: 0,
+            stake_state: StakeState::Idle,
+            unstake_epoch: 0,
+            total_escrow: 7,
+            stake_rewards: 0,
+            campaign_staking_rewards: LookupMap::new(StorageKey::CampaignStakingRewards),
+            minimum_open_fund_stake: 42,
+        });
+        let migrated = ImpactFlowEscrow::migrate_v3();
+        let campaign = migrated.get_campaign(0).expect("campaign remains readable");
+        assert_eq!(campaign.remaining_escrow.0, 7);
+        assert_eq!(campaign.hold_until_ms, 0);
+        assert_eq!(migrated.total_escrow, 7);
+        assert_eq!(migrated.minimum_open_fund_stake, 42);
+        assert_eq!(migrated.get_staking_config().pool_id, Some(account("pool.testnet")));
+    }
+
+    #[test]
+    fn only_reviewer_can_run_migration_v3() {
+        set_context("reviewer.testnet", NearToken::from_yoctonear(0));
+        env::state_write(&LegacyEscrowV3 {
+            admin: account("reviewer.testnet"),
+            next_campaign_id: 0,
+            campaigns: LookupMap::new(StorageKey::Campaigns),
+            staking_pool: None,
+            stake_campaign_id: None,
+            staked_principal: 0,
+            stake_state: StakeState::Idle,
+            unstake_epoch: 0,
+            total_escrow: 0,
+            stake_rewards: 0,
+            campaign_staking_rewards: LookupMap::new(StorageKey::CampaignStakingRewards),
+            minimum_open_fund_stake: 0,
+        });
+        set_context("attacker.testnet", NearToken::from_yoctonear(0));
+        let result = std::panic::catch_unwind(|| ImpactFlowEscrow::migrate_v3());
+        assert!(result.is_err());
+    }
 }

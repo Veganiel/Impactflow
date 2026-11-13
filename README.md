@@ -29,13 +29,13 @@ The escrow contract [`impactflow-escrow-xyz.testnet`](https://testnet.nearblocks
 
 | | Feature | NEAR technology |
 |---|---|---|
-| 🔒 | **Milestone escrow.** Donations are locked in the contract. Payouts need reviewer approval of submitted evidence. Staked principal can never be paid out early. | Rust smart contract (`near-sdk`), 24 unit tests |
+| 🔒 | **Milestone escrow.** Donations are locked in the contract. Payouts need reviewer approval of submitted evidence. Staked principal can never be paid out early. | Rust smart contract (`near-sdk`), 31 unit tests |
 | 🧾 | **Proof workflow in the app.** Project owners propose milestones and submit public evidence links; the reviewer sees an **Approve & release** button. Each step is a wallet-signed transaction. | Contract calls via NEAR Connect |
 | 📜 | **Live on-chain ledger.** The transparency section lists the escrow's latest donations, evidence submissions and payouts, each linked to its transaction. | NearBlocks indexer + NEAR RPC |
 | 👛 | **Wallet-signed actions.** Create campaigns, approve them and donate straight from the browser. | HOT Labs NEAR Connect |
 | 🌐 | **Cross-chain support.** Donors can pay from many chains: live asset list (200+ assets) and dry quote previews before any funds move. | NEAR Intents 1Click API |
 | 🕶️ | **Optional confidential routing.** Privacy modes are sent with quotes; sign-in uses a NEP-413 signed message. | NEAR Intents, NEP-413 |
-| 🌱 | **Ongoing funds + optional staking.** No-cap funds can stake idle escrow with an approved validator, and rewards flow back to the same campaign. | NEAR native staking pools |
+| 🌱 | **Optional staking, bounded by a hold date.** Funded campaigns can stake idle escrow with an approved validator; rewards flow back to the same campaign. Every campaign commits to a **hold date**: donations close then, staking is only allowed while 3+ days remain to unstake, and in that final window **anyone** can force the unstake, so donations are never staked indefinitely. | NEAR native staking pools |
 | 🤖 | **Project Readiness Agent.** Gives submitters structured feedback on clarity and completeness before review. It advises; it never approves or releases funds. | NEAR AI Cloud |
 | 🏛️ | **Organization onboarding.** NGOs, companies and community groups register, create a profile and submit projects for review. | Local API |
 
@@ -91,7 +91,7 @@ npm run check && npm test && npm run build
 cd contract && cargo test
 ```
 
-The tests cover 6 web/API cases and 24 contract cases, and GitHub Actions runs both suites on every push.
+The tests cover 6 web/API cases and 31 contract cases, and GitHub Actions runs both suites on every push.
 
 ### Verify the deployed contract
 
@@ -113,7 +113,7 @@ ImpactFlow is a hackathon prototype on **Testnet**, not production donation infr
 - **Separate flows.** NEAR Intents quotes and the Testnet escrow don't share funds. A cross-chain route does not fund the escrow.
 - **Confidential sign-in needs a check.** Confidential routing requires a Mainnet NEP-413 sign-in that still needs a live wallet check. Privacy modes reduce visibility; they don't guarantee anonymity.
 - **Demo content.** The first three project cards, sample totals and the activity ledger on the landing page are illustrative and labeled as such.
-- **AI agent needs credentials.** The Project Readiness Agent runs only when `NEAR_AI_API_KEY` and `NEAR_AI_MODEL` are set on the server.
+- **AI agent needs credentials.** The Project Readiness Agent runs only when `NEAR_AI_API_KEY` is set on the server (create a key in the NEAR AI Cloud dashboard). It uses `z-ai/glm-5.3-flash`, a model hosted by NEAR AI, unless `NEAR_AI_MODEL` overrides it.
 - **Development storage.** Accounts and sessions use local JSON storage and in-memory sessions. See [`docs/SECURITY.md`](docs/SECURITY.md) for the safeguards in place and what production would need.
 
 ## Roadmap

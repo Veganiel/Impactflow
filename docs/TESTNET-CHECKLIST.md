@@ -61,3 +61,23 @@ Do not move to mainnet until refunds, storage accounting, pause/recovery, multis
 - [ ] Withdraw after the pool unlocks. Verify principal and any actual reward return to the same campaign; verify a lower-than-principal result reduces its escrow liability rather than overstating available funds.
 - [ ] Exercise failed stake, unstake, pool-query, withdrawal, and payout callbacks before presenting this workflow as end-to-end verified.
 - [ ] Do not use mainnet or real funds; the contract has no independent security audit, emergency pause, or multi-position accounting.
+
+## Campaign hold dates (v3 · pending deployment)
+
+Every campaign now has a hold date: the date until which donations may be collected and held. Donations close on that date. Staking is only allowed while at least 3 days remain (enough for the 4-epoch unstake plus withdrawal); once that exit window opens, **anyone** can start the unstake and withdrawal so donations are never staked past the committed date. Campaigns created before v3 can set a hold date once (`set_campaign_hold_until`); until then they cannot stake.
+
+The live state was decoded byte-for-byte against `LegacyEscrowV3` (128 of 128 bytes matched) before this migration was written.
+
+Run both commands directly after each other. Between deploy and migration the contract cannot read its state.
+
+```sh
+cd ~/Desktop/impactflow/contract
+RUSTFLAGS='-C link-arg=-s --cfg near' cargo build --target wasm32-unknown-unknown --profile release --locked
+near contract deploy impactflow-escrow-xyz.testnet use-file target/wasm32-unknown-unknown/release/impactflow_escrow.wasm without-init-call network-config testnet sign-with-keychain send
+near contract call-function as-transaction impactflow-escrow-xyz.testnet migrate_v3 json-args '{}' prepaid-gas '100 Tgas' attached-deposit '0 NEAR' sign-as impactflow-reviewer-xyz.testnet network-config testnet sign-with-keychain send
+```
+
+- [ ] Deploy the v3 WASM without an init call.
+- [ ] Reviewer calls `migrate_v3` (never `migrate` or `migrate_v2` again).
+- [ ] Verify `get_campaign_count` is still 2 and both campaigns show their raised totals, with `hold_until_ms: 0`.
+- [ ] Create a new campaign in the UI with a hold date and confirm `hold_until_ms` in `get_campaign`.

@@ -63,8 +63,9 @@ app.get('/health',(_req,res)=>res.json({ok:true,service:'impactflow-api',version
 const agentWindows = new Map();
 app.post('/api/agent/project-readiness', auth, async (req, res) => {
   const apiKey = process.env.NEAR_AI_API_KEY;
-  const model = process.env.NEAR_AI_MODEL;
-  if (!apiKey || !model) return res.status(503).json({ error: 'The Project Readiness Agent is not configured. Set NEAR_AI_API_KEY and NEAR_AI_MODEL in the server .env file.' });
+  // Default: a model hosted by NEAR AI itself. Override with NEAR_AI_MODEL (see GET https://cloud-api.near.ai/v1/models).
+  const model = process.env.NEAR_AI_MODEL || 'z-ai/glm-5.3-flash';
+  if (!apiKey) return res.status(503).json({ error: 'The Project Readiness Agent is not configured. Set NEAR_AI_API_KEY in the server .env file.' });
   const now = Date.now(), key = `${req.ip || 'unknown'}:${req.user.id}`;
   let window = agentWindows.get(key);
   if (window && now - window.start >= 10 * 60_000) { agentWindows.delete(key); window = null; }
@@ -87,8 +88,9 @@ app.post('/api/agent/project-readiness', auth, async (req, res) => {
       ] }), signal: AbortSignal.timeout(30_000)
     });
     if (!upstream.ok) {
-      console.error('NEAR AI project review returned HTTP', upstream.status);
-      return res.status(502).json({ error: 'The AI review service is unavailable. Please retry later.' });
+      console.error('NEAR AI project review returned HTTP', upstream.status, 'for model', model);
+      const hint = upstream.status === 401 ? 'The NEAR AI API key was rejected.' : upstream.status === 402 ? 'The NEAR AI account has no remaining credits.' : (upstream.status === 404 || upstream.status === 400) ? `The configured model "${model}" is not available on NEAR AI Cloud.` : 'The AI review service is unavailable.';
+      return res.status(502).json({ error: `${hint} Please retry later or contact the operator.` });
     }
     const completion = await upstream.json();
     const raw = completion.choices?.[0]?.message?.content;

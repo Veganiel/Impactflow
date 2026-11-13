@@ -340,3 +340,9 @@ a.ledger-row:hover strong{text-decoration:underline;text-underline-offset:2px}
 .ledger-row small{overflow-wrap:anywhere}
 .ledger-tx{font-weight:400!important;color:#6a7a69!important}
 .ledger-foot a strong{color:#3f6b45}
+
+/* Campaign hold date */
+.hold-line{font-size:14px;color:#4f6150;padding:8px 12px;border-radius:8px;background:rgba(233,237,222,.6);display:inline-block}
+.hold-line b{color:var(--text)}
+.hold-ended{background:#f6e7cf;color:#7a5424}
+#chainCampaignHold{width:100%}
