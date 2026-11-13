@@ -14,6 +14,22 @@ ImpactFlow is a hackathon prototype. This note describes implemented safeguards 
 
 Implementation and regression checks: `server/index.js` and `tests/api-smoke.test.js`.
 
+## Smart contract safeguards
+
+- Payouts only go to the recipient fixed at campaign creation; the reviewer can release funds but not redirect them.
+- Releases require submitted HTTPS evidence and reviewer approval; staked principal cannot be released.
+- Contract state is updated before external calls, and failed transfers or pool calls are rolled back in callbacks.
+- All escrow arithmetic is checked for overflow and underflow.
+- Campaign creators pay for their own storage (excess refunded), and campaigns are capped at 20 milestones, which prevents storage-griefing attacks that could otherwise lock the escrow balance.
+- Donations close at each campaign's hold date; staking must end before it, and anyone can force the unstake in the final three days.
+- 34 unit tests cover access control, accounting, staking callbacks, hold dates, migrations and storage charging.
+
+## Review on 13 November 2026
+
+- Frontend: every server- or chain-supplied value written as HTML is escaped (`esc`); evidence links must be HTTPS.
+- Dependencies: `npm audit` reported 0 vulnerabilities.
+- Repository and git history contain no keys, tokens or `.env` files.
+
 ## Trust boundaries
 
 - The browser never receives `NEAR_INTENTS_JWT`; the API proxies partner requests.
@@ -27,6 +43,6 @@ Implementation and regression checks: `server/index.js` and `tests/api-smoke.tes
 - IP throttling is process-local; add persistent limits and abuse protection at a trusted hosting edge before public exposure.
 - There is no MFA, account recovery, durable session revocation, security monitoring, backup/restore plan, or independent penetration test.
 - CORS and Origin checks are defense-in-depth, not a substitute for HTTPS, secure deployment configuration and careful secret management.
-- The escrow contract needs an independent audit, reviewer key governance, pause/recovery design and storage-cost review before mainnet use.
+- The escrow contract needs an independent audit, reviewer key governance (multisig/DAO instead of single keys; the contract account's full-access key can currently redeploy code), and pause/recovery design before mainnet use.
 
 Passing tests verify only tested behavior; they do not prove the absence of vulnerabilities.

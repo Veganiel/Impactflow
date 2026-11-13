@@ -81,3 +81,9 @@ near contract call-function as-transaction impactflow-escrow-xyz.testnet migrate
 - [x] Reviewer calls `migrate_v3` (`HiCh4nkPasWq5zzRtfmHwmhgzMvaU273dvtohGSxExcE`). Never call `migrate`, `migrate_v2` or `migrate_v3` again.
 - [x] Verified: code hash `5v9deX8YbbDr2q2PaP4Jp8Rq9ssc7tUq3nohHGJwHfzT`, `get_campaign_count` is 2, both campaigns keep their totals and paid milestone, `hold_until_ms: 0`.
 - [ ] Create a new campaign in the UI with a hold date and confirm `hold_until_ms` in `get_campaign`.
+
+## Security hardening (v3.1 · deployed 13 November 2026)
+
+- [x] `create_campaign` is payable and charges the caller for the storage it adds; any excess deposit is refunded. Without this, roughly 295 maximum-size spam campaigns could lock the contract's free balance and block donations and payouts.
+- [x] Campaigns are capped at 20 milestones.
+- [x] Code-only deploy without migration (state layout unchanged): `rMR4mWUopMhzErJ7EdGhg8LhKFf2CeiLQiSYvqu4YP7`, code hash `8wqUojNLmRQcWiYGsvr2hWYsvBU9Ytfxk9beB7Akdrym`. Both campaigns, totals and the paid milestone were verified afterwards.
