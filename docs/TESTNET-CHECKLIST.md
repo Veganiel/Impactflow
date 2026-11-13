@@ -26,11 +26,11 @@ Do not move to mainnet until refunds, storage accounting, pause/recovery, multis
 
 ## Optional staking upgrade (Testnet only)
 
-### Ongoing funds and $1,000 reference threshold (pending deployment)
+### Ongoing funds and $1,000 reference threshold (deployed 5 November 2026)
 
 - [ ] Save a complete pre-upgrade state snapshot and previous WASM before the upgrade.
 - [ ] Build the updated contract, inspect the WASM and run the Web/API compile checks.
-- [ ] Deploy the updated WASM without an init call; have the reviewer wallet call `migrate_v2` (do not call `migrate`).
+- [x] Deploy the updated WASM without an init call; have the reviewer wallet call `migrate_v2` (do not call `migrate`).
 - The reviewer deployment commands for this project are:
   ```sh
   cd ~/Desktop/impactflow/contract

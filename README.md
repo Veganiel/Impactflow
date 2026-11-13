@@ -1,104 +1,124 @@
-# ImpactFlow
+# ImpactFlow — funding with proof
 
-**Funding with proof.** ImpactFlow is a NEAR hackathon prototype for routing support toward public-benefit projects and making their goals, review status and funding path easier to inspect.
+**Donations for public-benefit projects shouldn't disappear into a black box.** ImpactFlow holds donations in a NEAR smart-contract escrow and releases them milestone by milestone. A project submits evidence, a reviewer approves it, and only then does the money move. Every step is an on-chain transaction anyone can check.
 
-## What works in this prototype
+Built at **NEAR HACKATHON** · Tracks: **08 — Real-World Money** (primary), **13 — Open Innovation**
 
-- Local account registration and sign-in, organization profiles and project proposals queued as `pending_review`.
-- NEAR wallet selection through HOT Labs NEAR Connect.
-- Live supported-asset discovery from NEAR Intents 1Click.
-- Dry quote previews. The app accepts human-readable token amounts and converts them to the asset's smallest units before sending the request.
-- An optional NEAR AI Cloud Project Readiness Agent that returns structured clarity/completeness notes for a signed-in project submitter. It does not verify facts or approve proposals; it requires server-side NEAR AI Cloud credentials.
-- An optional non-dry quote request that can return deposit instructions. The user must make any transfer separately from their own wallet.
-- Confidential routing options and a NEP-413 sign-in flow using the current verifier salt and a timestamped nonce. Live wallet authentication still needs verification before this feature should be presented as working end to end.
-- A Rust NEAR escrow contract deployed and initialized on NEAR Testnet, plus a UI for creating campaigns, reviewer approval and native-NEAR donations. Read-only Testnet checks confirmed the deployed code hash, reviewer account and two readable campaigns; live wallet transactions still need end-to-end testing.
-- Local contract/UI changes now support ongoing funds with no cap and a reviewer-configured NEAR reference threshold for staking. These changes are **not deployed to Testnet yet**: the contract needs a reviewer-signed code upgrade and `migrate_v2` call. The $1,000 reference is manually maintained, not a live USD oracle. The currently deployed contract remains on the prior full-goal staking rule until the upgrade is completed.
+![ImpactFlow landing page](docs/screenshots/hero.png)
 
-The campaign cards, totals, milestones and activity ledger on the landing page are illustrative demo content. The local contribution preview does not contact a wallet, save a donation or move money.
+## Verified on NEAR Testnet
 
-## Start the website
+The escrow contract [`impactflow-escrow-xyz.testnet`](https://testnet.nearblocks.io/address/impactflow-escrow-xyz.testnet) has completed the full funding cycle on-chain:
 
-Requirements: Node.js 18 or newer. Internet access is needed for live NEAR Intents asset discovery and wallet services.
+| Step | Who signs | Transaction |
+|---|---|---|
+| 1. Create campaign | Project owner | [`Aw1hEF…`](https://testnet.nearblocks.io/txns/Aw1hEFnSKodjYBZVU3tNE8EEYGHb8G6rKqtUqwh2gDt5) |
+| 2. Approve campaign | Reviewer | [`9EJWcc…`](https://testnet.nearblocks.io/txns/9EJWccZ4fjcBpMJg3tCQvbMaMzod6JZRdxWomgqiQL56) |
+| 3. Donate 0.01 NEAR into escrow | Donor | [`CpEdDs…`](https://testnet.nearblocks.io/txns/CpEdDspHcXWqD4pihxMB8xABMAjGcEYrbVFynhVATouC) |
+| 4. Propose milestone | Project owner | [`22zdjq…`](https://testnet.nearblocks.io/txns/22zdjqh5VveNad8384zfmQNZ6Y79N6p8wz7X2kTWxGu4) |
+| 5. Submit milestone evidence | Project owner | [`y37BpP…`](https://testnet.nearblocks.io/txns/y37BpPzz6ckH9wAfkM6C6gTHT1cGQp7hmkimeZeJhTm) |
+| 6. **Approve and release payout** | Reviewer | [`4cHHMk…`](https://testnet.nearblocks.io/txns/4cHHMkS8WauiwEX5Tsv26y9frNgq3Uhy3Lkruq3ZTzaT) |
+| Wallet-signed campaign + donations from a separate user account | `impactflow-daniel.testnet` | [`DVnp9B…`](https://testnet.nearblocks.io/txns/DVnp9BSFmFf6KqCnrgKCW8shTeDjFoGbejbxyYajUeMu), [`EUgDNS…`](https://testnet.nearblocks.io/txns/EUgDNS6P1fyLbduWN2XiTiUwuMBAfDtEjse5sWFWuteC) |
+| Upgrade to v2 (ongoing funds) + state-preserving migration | Contract / reviewer | [`5RtMdN…`](https://testnet.nearblocks.io/txns/5RtMdNWrsEk6LqxtN74raMkJiPwQR2HCLWWPCEspGSpT), [`3dTZFF…`](https://testnet.nearblocks.io/txns/3dTZFFnTPNLKWyiQbs5qStL9cb1HezjrydanfJD6hBPs) |
+
+**The deployed code is the code in this repo.** The on-chain code hash `9uDNNgyLHaUcd76u5mE9oAptsb7UoPBgASAmxM5v1Apo` matches a release build of [`contract/src/lib.rs`](contract/src/lib.rs). [Reproduce it below](#verify-the-deployed-contract).
+
+![Live on-chain campaigns read from NEAR Testnet](docs/screenshots/escrow-testnet.png)
+
+## What ImpactFlow does
+
+| | Feature | NEAR technology |
+|---|---|---|
+| 🔒 | **Milestone escrow.** Donations are locked in the contract. Payouts need reviewer approval of submitted evidence. Staked principal can never be paid out early. | Rust smart contract (`near-sdk`), 24 unit tests |
+| 👛 | **Wallet-signed actions.** Create campaigns, approve them and donate straight from the browser. | HOT Labs NEAR Connect |
+| 🌐 | **Cross-chain support.** Donors can pay from many chains: live asset list (200+ assets) and dry quote previews before any funds move. | NEAR Intents 1Click API |
+| 🕶️ | **Optional confidential routing.** Privacy modes are sent with quotes; sign-in uses a NEP-413 signed message. | NEAR Intents, NEP-413 |
+| 🌱 | **Ongoing funds + optional staking.** No-cap funds can stake idle escrow with an approved validator, and rewards flow back to the same campaign. | NEAR native staking pools |
+| 🤖 | **Project Readiness Agent.** Gives submitters structured feedback on clarity and completeness before review. It advises; it never approves or releases funds. | NEAR AI Cloud |
+| 🏛️ | **Organization onboarding.** NGOs, companies and community groups register, create a profile and submit projects for review. | Local API |
+
+## Run it locally (2 minutes)
+
+Requirements: Node.js 18+ and internet access (for live NEAR Intents and Testnet data).
 
 ```bash
 npm ci
 npm run dev:all
 ```
 
-Wait until the terminal says the API is ready and Vite has started, then open <http://localhost:5173>.
+Open <http://localhost:5173>. `dev:all` starts the API on port 8787 and the website on port 5173; press **Ctrl+C** to stop both. No `.env` is needed for the demo. Optional settings are listed in [`.env.example`](.env.example).
 
-`npm run dev:all` starts the local API on port 8787, waits for its health check, and then starts the website. Press **Ctrl+C** once to stop both. If either port is already in use, stop the older ImpactFlow process before restarting.
+## Demo walkthrough for judges
 
-The optional Project Readiness Agent uses NEAR AI Cloud. To enable it, set `NEAR_AI_API_KEY` and `NEAR_AI_MODEL` in `.env`; create a key and any required credits in the NEAR AI Cloud dashboard. The key stays on the server. Each review sends the project title, impact area, funding goal and description to NEAR AI Cloud only when the signed-in user clicks the review button. Do not send personal or confidential documents. The API stores prototype data in `data/impactflow.json`; sessions are kept in memory and end when the API restarts. No `.env` file is required for the local onboarding flow. If your NEAR Intents partner account requires an API key, copy `.env.example` to `.env` and set `NEAR_INTENTS_JWT` there. The default `NEAR_CONTRACT_ID` is the deployed Testnet account `impactflow-escrow-xyz.testnet`; override it in `.env` only if you deploy to a different account. Never put the partner key in browser code or commit `.env`.
-
-To run the services separately instead, use two terminals:
-
-```bash
-npm run server
-```
-
-```bash
-npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
-```
-
-## Reproducible walkthrough
-
-1. Open **Register**, create a local account, then save an organization profile. Profiles are marked unverified.
-2. Select **Submit a project**, choose either a fixed target or an ongoing fund, and enter the required details. The proposal should appear under the account as `pending_review`; this is a local API record, not an on-chain campaign.
-3. Open **Cross-chain** and wait for the supported-asset list. Choose two different assets, enter an amount in the selected token, and provide a recipient address for the destination network and a refund address for the source network.
-4. Select **Get live quote preview**. This uses `dry: true`; it must not create a deposit address or move funds.
-5. After a preview, **Create deposit instructions** requests a non-dry 1Click quote and may return a real deposit address. The website does not send or sign the transfer. For a judge walkthrough, stop at the dry preview unless you intentionally want to test a live route and understand the asset, network and address.
-6. The Confidentiality options require Mainnet NEAR Intents authentication. Do not describe the flow as verified until a wallet signs in successfully and the service returns an access token. For named NEAR accounts, the signing public key may first need to be registered with `add_public_key` on `intents.near`; this is a separate Mainnet wallet confirmation. See [NEAR's account-key instructions](https://docs.near-intents.org/integration/verifier-contract/account-abstraction). Confidential routing does not guarantee anonymity.
-7. The escrow panel reads the deployed Testnet contract live. Campaign creation, reviewer approval and native-NEAR Testnet donations require wallet transactions; complete a wallet walkthrough before presenting those actions as end-to-end verified. The separate local project proposal form does not create a contract campaign.
-8. Ongoing-fund staking requires the pending contract upgrade and state-preserving `migrate_v2`. After that, the reviewer must configure an approved pool and set the manual NEAR equivalent of $1,000. Targeted campaigns still require their full goal; ongoing funds use the configured threshold and keep accepting donations. Read [the staking checklist](docs/TESTNET-CHECKLIST.md); do not present this as live until a small stake, later donation, delayed unstake and withdrawal have completed.
+1. **Escrow (Explore section).** The two campaign cards are read live from the Testnet contract. Campaign #0 shows a milestone with status `paid`, the result of the payout transaction above.
+2. **Donate.** Select **Connect Testnet wallet**, then **Donate 0.01 NEAR** on an active campaign. The raised total updates from the contract.
+3. **Create a campaign.** Fill in **Create a testnet campaign**. It stays inactive until the reviewer account approves it.
+4. **Cross-chain.** Open **Cross-chain** and wait for the asset list. Pick two assets, enter recipient and refund addresses, then select **Get live quote preview**. This is a dry run, so no funds move.
+5. **Organizations.** Select **Register**, create an account and organization profile, and submit a project. It appears as `pending_review`.
+6. **Reviewer brief.** The last section and [`public/impactflow-evidence.json`](public/impactflow-evidence.json) list every capability with its status and limits.
 
 ## Architecture
 
-- `app.js` — page interactions, HOT Labs wallet connection, project submission and 1Click quote flow.
-- `server/index.js` — local account and project API, NEAR Intents proxy, and read-only Testnet escrow queries.
-- `near-intents-auth.js` — NEP-413 nonce and signature encoding helpers.
-- `contract/src/lib.rs` — native-NEAR escrow contract prototype.
-- `public/impactflow-evidence.json` — machine-readable summary copied into the production build and offered from the reviewer brief.
-- `.github/workflows/ci.yml` — web and contract checks on pushes and pull requests.
-
-## Checks
-
-```bash
-npm run check
-npm run build
-npm test
+```mermaid
+flowchart LR
+  U[Donor / project owner] -->|NEAR Connect wallet| C[(Escrow contract<br/>impactflow-escrow-xyz.testnet)]
+  R[Reviewer wallet] -->|approve campaign / release milestone| C
+  C -->|optional stake / unstake| P[Validator pool]
+  W[Website · Vite] --> A[API · Express]
+  A -->|view calls| C
+  A -->|assets + quotes| I[NEAR Intents 1Click]
+  A -->|readiness review| N[NEAR AI Cloud]
 ```
 
-Rust contract tests:
+| Path | Purpose |
+|---|---|
+| [`contract/src/lib.rs`](contract/src/lib.rs) | Escrow contract: campaigns, donations, milestones, reviewer release, staking |
+| [`app.js`](app.js) | UI, wallet connection, escrow actions, 1Click quote flow |
+| [`server/index.js`](server/index.js) | Accounts and projects API, NEAR Intents proxy, Testnet view calls, AI agent |
+| [`near-intents-auth.js`](near-intents-auth.js) | NEP-413 nonce and signature encoding |
+| [`docs/`](docs) | Escrow design, security notes, Testnet checklist |
+
+The API never holds user funds or signs transactions. Every transfer is approved by the user in their own wallet.
+
+## Tests
+
+```bash
+npm run check && npm test && npm run build
+cd contract && cargo test
+```
+
+The tests cover 6 web/API cases and 24 contract cases, and GitHub Actions runs both suites on every push.
+
+### Verify the deployed contract
 
 ```bash
 cd contract
-cargo test
+RUSTFLAGS='-C link-arg=-s --cfg near' cargo build --target wasm32-unknown-unknown --profile release --locked
+python3 -c "import hashlib,sys;d=hashlib.sha256(open('target/wasm32-unknown-unknown/release/impactflow_escrow.wasm','rb').read()).digest();a='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';n=int.from_bytes(d,'big');s='';exec('while n:\n n,r=divmod(n,58);s=a[r]+s');print(s)"
 ```
 
-The GitHub Actions workflow runs the web checks and Node API smoke test, plus the Rust contract tests. A passing test suite does not mean the contract has been deployed or audited.
+Compare the output with the `code_hash` from the [`view_account` RPC call](https://docs.near.org/api/rpc/contracts#view-account) for `impactflow-escrow-xyz.testnet`.
 
-## Status and limitations
+## Honest status
 
-### API security protections in this prototype
+ImpactFlow is a hackathon prototype on **Testnet**, not production donation infrastructure.
 
-- Passwords are stored as salted scrypt hashes; successful sessions use random, HttpOnly, SameSite=Lax cookies.
-- State-changing browser requests with an Origin header are restricted to the configured `APP_ORIGIN` allowlist.
-- Failed sign-ins are throttled per client address and account identifier; the API also applies a general request limit.
-- Responses include clickjacking, MIME-sniffing and referrer protections. HSTS is sent only in production mode.
-- These protections reduce common risks; they do not make the prototype “unhackable.” Sessions and throttling are in memory and reset on restart. Before public production use, add persistent session storage, edge/WAF rate limits, HTTPS termination, monitoring, backups, dependency scanning and an independent security review.
+- **Not audited.** The contract has no independent audit and no refund flow, NEP-141 token escrow or multisig review yet.
+- **Evidence isn't verified.** Milestone evidence is a submitted link. The contract enforces the approval process, not the real-world truth of the evidence.
+- **Staking isn't live-tested.** It is deployed, but no validator pool is configured yet, so the stake → unstake → withdraw cycle has not run live.
+- **Separate flows.** NEAR Intents quotes and the Testnet escrow don't share funds. A cross-chain route does not fund the escrow.
+- **Confidential sign-in needs a check.** Confidential routing requires a Mainnet NEP-413 sign-in that still needs a live wallet check. Privacy modes reduce visibility; they don't guarantee anonymity.
+- **Demo content.** The first three project cards, sample totals and the activity ledger on the landing page are illustrative and labeled as such.
+- **AI agent needs credentials.** The Project Readiness Agent runs only when `NEAR_AI_API_KEY` and `NEAR_AI_MODEL` are set on the server.
+- **Development storage.** Accounts and sessions use local JSON storage and in-memory sessions. See [`docs/SECURITY.md`](docs/SECURITY.md) for the safeguards in place and what production would need.
 
-- This is a hackathon prototype, not production donation infrastructure.
-- Organization profiles are not identity verification, accreditation or due diligence. The local JSON store and in-memory sessions are development-only.
-- The contract is deployed on Testnet but is not independently audited. The current prototype has no production-grade donor refund process, NEP-141 escrow, multisig review, storage-cost accounting or emergency controls.
-- The sample campaign figures are not verified donations. The contribution preview is a local interaction only.
-- The 1Click dry preview, non-dry quote request and Testnet escrow are separate flows. A NEAR Intents route does not fund the Testnet escrow.
-- Confidential routing can reduce public visibility for supported routes. It cannot hide all activity from service operators, compliance systems or public-chain observers.
+## Roadmap
 
-## Hackathon fit and submission
+1. NEP-141 stablecoin escrow, so donations arriving through NEAR Intents can fund campaigns directly.
+2. Donor refunds for cancelled campaigns, plus multisig or DAO-based reviewer sets.
+3. Verifiable milestone evidence: hashed uploads and attestations from independent reviewers.
+4. Mainnet launch after an independent contract audit.
 
-Potential fits are **Track 08 — Real-World Money** for cross-chain payments supporting public-benefit organizations, **Track 03 — Privacy & Private AI** if the Confidential Intents flow is successfully verified in the final demo, and **Track 13 — Open Innovation** if the team frames the public-benefit funding model as the novel part. Choose tracks based on the working demo; do not claim that the local project queue is on-chain funding or that a privacy option alone guarantees anonymity.
+## License
 
-The current organizer page asks for a public repository, a public demo post on X that says it was built at NEAR HACKATHON and tags `@NEARProtocol` and `#NEARHackathon`, and a submission containing both links. The listed deadline is **14 November 2026, 23:59 UTC**. Re-check the [official NEAR Hackathon page](https://nearhackathon.com/) and its `HACKATHON.md` before submitting.
-
-This README and `public/impactflow-evidence.json` describe current behavior and known gaps. Verify the instructions above against the running site and source before treating a feature as complete.
+[MIT](LICENSE)

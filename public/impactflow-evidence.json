@@ -62,9 +62,9 @@
     {
       "id": "near-escrow-contract",
       "status": "deployed-and-initialized-on-testnet",
-      "evidence": "NEAR Testnet account impactflow-escrow-xyz.testnet is deployed with the contract WASM (its code hash matches the local build). Read-only RPC calls confirm reviewer impactflow-reviewer-xyz.testnet and two on-chain campaigns.",
+      "evidence": "NEAR Testnet account impactflow-escrow-xyz.testnet runs code hash 9uDNNgyLHaUcd76u5mE9oAptsb7UoPBgASAmxM5v1Apo, which matches a release build of contract/src/lib.rs. On-chain history shows successful create_campaign, approve_campaign, donate (including from a separate user account), propose_milestone, submit_milestone_evidence and approve_and_release transactions, plus the v2 upgrade and migrate_v2.",
       "limitations": [
-        "Campaign creation and donations require a wallet transaction and have not been live-tested in this browser session.",
+        "Milestone evidence is a submitted link; the contract does not verify real-world impact.",
         "The contract is on Testnet and has not been independently audited."
       ]
     },
@@ -76,7 +76,7 @@
         "No Testnet staking pool has been configured, and stake, unstake and withdrawal transactions have not completed end-to-end.",
         "One active campaign staking position is supported across this contract at a time.",
         "Withdrawal is time-locked by the selected pool (normally at least four epochs); rewards are not guaranteed and validator or contract risk remains.",
-        "The upgrade and migration need a Testnet walkthrough and independent contract review before any real-fund use."
+        "The upgrade and migrate_v2 completed on Testnet on 5 November 2026; independent contract review is still required before any real-fund use."
       ]
     },
     {

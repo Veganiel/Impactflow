@@ -292,3 +292,24 @@ section[id]{scroll-margin-top:96px}.project-card:focus-within,.review-card:focus
 
 /* Prevent decorative glows from widening the page on mobile (iOS ignores body overflow-x:hidden when zooming). */
 html,body{overflow-x:clip}
+
+/* Contrast pass: replace leftover dark-theme colors that were nearly invisible on the light palette. */
+.org-line{color:#5f705f}.project-status{color:#3f6b45}
+.progress-meta{color:#5f705f}.progress-meta strong{color:var(--text)}.progress-meta strong span{color:#6a7a69}
+.card-foot>span{color:#5f705f}.card-foot b{color:#3f6b45}
+.org-feature>span{color:#4f7550}
+.account-status strong{color:var(--text)}
+.privacy-chip{color:#3f6b45;border-color:#8faa86}
+.ledger-icon{background:#e3ead8;color:#3f6b45}.ledger-foot strong{color:#3f6b45}
+#onchainCampaign article label[for^="donationAmount-"]{color:#5b6f5c;font-size:10px}
+.donationAmountInput{background:#fffdf6;color:var(--text);border-color:#b7c4ad;box-shadow:inset 0 1px 2px rgba(35,55,43,.08)}
+.donationAmountInput:hover{border-color:#7e9a76}
+.donationAmountInput:focus{background:#fff;border-color:var(--green);box-shadow:0 0 0 3px rgba(72,107,71,.15)}
+.donationAmountInput::placeholder{color:#8a978a}
+
+/* Keep navigation labels on one line on laptop widths. */
+.topbar nav a{white-space:nowrap}
+@media(min-width:1001px) and (max-width:1380px){.topbar nav{gap:20px}.topbar .network{display:none}}
+.intent-form .field-hint{color:#a9bcae}
+@media(min-width:1001px) and (max-width:1180px){.topbar nav{gap:13px;font-size:12px}.top-actions .btn{white-space:nowrap;padding:11px 13px}.brand small{white-space:nowrap}}
+.tx-link{color:#3f6b45;font-weight:700;text-decoration:underline;text-underline-offset:2px;white-space:nowrap}

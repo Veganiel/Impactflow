@@ -1,5 +1,7 @@
 # ImpactFlow — build status and next milestones
 
+> **Historical planning note (v0.3).** Since then, the escrow contract has been deployed to NEAR Testnet and completed a full campaign → donation → milestone → payout cycle on-chain. See the [README](README.md) for current status.
+
 ## Product scope
 
 ImpactFlow is an all-causes funding platform: animal welfare, nature/climate, social justice, humanitarian aid, public health, education and other public-benefit initiatives. Eligible users include individuals, NGOs, companies, community groups and public institutions.
