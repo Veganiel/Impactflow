@@ -1,0 +1,24 @@
+{
+  "name": "impactflow",
+  "version": "0.6.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:all": "node scripts/dev-all.js",
+    "server": "node server/index.js",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "node --test",
+    "check": "node --check app.js && node --check server/index.js && node --check near-intents-auth.js && node --check scripts/dev-all.js"
+  },
+  "dependencies": {
+    "@hot-labs/near-connect": "^0.12.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "vite": "^6.1.0"
+  }
+}

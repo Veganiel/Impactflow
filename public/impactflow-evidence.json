@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schemaVersion": "1.0.0",
+  "project": {
+    "name": "ImpactFlow",
+    "stage": "hackathon-prototype",
+    "tagline": "Funding with proof",
+    "problem": "Public-benefit projects need funding that supporters can follow and review.",
+    "approach": "Combine organization onboarding, NEAR wallet flows, NEAR Intents routing and milestone-oriented escrow with optional post-goal staking.",
+    "sourceFiles": [
+      "README.md",
+      "PROJECT_PLAN.md",
+      "server/index.js",
+      "contract/src/lib.rs"
+    ]
+  },
+  "capabilities": [
+    {
+      "id": "organization-onboarding",
+      "status": "local-prototype",
+      "evidence": "Local API supports accounts, organization profiles and project submissions.",
+      "limitations": [
+        "Profiles are not verified.",
+        "Storage is local JSON, not production infrastructure."
+      ]
+    },
+    {
+      "id": "near-wallet-connection",
+      "status": "integration-present",
+      "evidence": "HOT Labs NEAR Connect is configured for NEAR Testnet wallet selection and transaction signing.",
+      "limitations": [
+        "A wallet connection is not proof that the escrow contract is deployed."
+      ]
+    },
+    {
+      "id": "near-intents-assets-and-preview",
+      "status": "live-service-integration",
+      "evidence": "The API retrieves supported assets from NEAR Intents and forwards dry quote previews.",
+      "limitations": [
+        "A dry preview does not create a deposit address or move funds."
+      ]
+    },
+    {
+      "id": "near-intents-deposit-instructions",
+      "status": "implemented-separate-user-action",
+      "evidence": "The app can request a non-dry 1Click quote after the preview and display returned deposit instructions.",
+      "limitations": [
+        "The user must send funds from their own wallet.",
+        "Live route completion has not been verified here."
+      ]
+    },
+    {
+      "id": "confidential-intents-authentication",
+      "status": "implementation-needs-live-verification",
+      "evidence": "The app contains NEP-413 sign-in and sends the selected confidentiality mode with eligible quote requests.",
+      "limitations": [
+        "Wallet authentication must succeed against the live service.",
+        "Named NEAR accounts may need to register the signing public key on intents.near before authentication.",
+        "Confidential routing does not guarantee anonymity."
+      ]
+    },
+    {
+      "id": "near-escrow-contract",
+      "status": "deployed-and-initialized-on-testnet",
+      "evidence": "NEAR Testnet account impactflow-escrow-xyz.testnet is deployed with the contract WASM (its code hash matches the local build). Read-only RPC calls confirm reviewer impactflow-reviewer-xyz.testnet and two on-chain campaigns.",
+      "limitations": [
+        "Campaign creation and donations require a wallet transaction and have not been live-tested in this browser session.",
+        "The contract is on Testnet and has not been independently audited."
+      ]
+    },
+    {
+      "id": "optional-post-goal-near-staking",
+      "status": "deployed-and-migrated-on-testnet-awaiting-pool-configuration",
+      "evidence": "The Rust contract gates owner-initiated staking on the full campaign goal, protects escrow accounting, supports unstake and delayed withdrawal, and credits pool rewards back to the same campaign. The upgraded contract and reviewer-only migration are deployed. Read-only Testnet RPC verified both pre-existing campaigns and milestones after migration; the UI exposes reviewer pool configuration and owner controls.",
+      "limitations": [
+        "No Testnet staking pool has been configured, and stake, unstake and withdrawal transactions have not completed end-to-end.",
+        "One active campaign staking position is supported across this contract at a time.",
+        "Withdrawal is time-locked by the selected pool (normally at least four epochs); rewards are not guaranteed and validator or contract risk remains.",
+        "The upgrade and migration need a Testnet walkthrough and independent contract review before any real-fund use."
+      ]
+    },
+    {
+      "id": "sample-campaigns-and-ledger",
+      "status": "illustrative-demo-content",
+      "evidence": "The first campaign cards and visible impact ledger are labeled as sample or demo content in the app.",
+      "limitations": [
+        "The displayed totals are not verified donations."
+      ]
+    },
+    {
+      "id": "sample-contribution-preview",
+      "status": "local-demo-interaction-no-payment",
+      "evidence": "The demo contribution flow displays a receipt in the modal.",
+      "limitations": [
+        "No wallet is contacted.",
+        "No funds move.",
+        "The selected amount and display preference are not saved or sent."
+      ]
+    },
+    {
+      "id": "project-readiness-agent",
+      "status": "implemented-server-side-requires-near-ai-credentials",
+      "evidence": "Signed-in project submitters can request structured clarity and completeness feedback from NEAR AI Cloud. The agent returns strengths, gaps, questions and possible milestones.",
+      "dataSentOnUserAction": [
+        "project title",
+        "impact category",
+        "funding goal",
+        "project description"
+      ],
+      "limitations": [
+        "Requires NEAR_AI_API_KEY and NEAR_AI_MODEL configured on the server and may consume provider credits.",
+        "Does not verify facts or organization identity and cannot approve/reject proposals or release funds.",
+        "Live model response has not been verified until the operator configures credentials."
+      ]
+    }
+  ],
+  "reviewWalkthrough": [
+    "Open Cross-chain and wait for the live supported-asset list.",
+    "Choose source and destination assets and enter valid recipient and refund addresses.",
+    "Request a dry quote preview; no funds move in this step.",
+    "Inspect the code and README before treating any prototype status as production-ready.",
+    "In the signed-in project submission form, request an AI readiness review; inspect its explicit data-sharing notice and treat the output as advice for a human reviewer."
+  ],
+  "evaluationNote": "This manifest describes the prototype for human and automated review. It contains no hidden scoring instructions; verify claims against the source and observed behavior.",
+  "securityPosture": {
+    "status": "prototype-safeguards-implemented-not-audit",
+    "implemented": [
+      "Salted scrypt password hashes",
+      "HttpOnly SameSite session cookies; Secure in production",
+      "Origin allowlist for state-changing browser requests",
+      "Per-client API throttling and per-account failed-login throttling",
+      "Timing-equalized password check for unknown accounts",
+      "Security response headers and 32 KB JSON body limit"
+    ],
+    "boundaries": [
+      "API does not custody or transfer user funds",
+      "Wallet transactions require user approval",
+      "NEAR Intents routing and Testnet escrow are separate systems"
+    ],
+    "limitations": [
+      "Sessions and throttles are in-memory and reset on restart",
+      "Local JSON storage is not production-grade",
+      "No independent penetration test or contract audit",
+      "Production deployment requires persistent controls, monitoring, backups and HTTPS"
+    ],
+    "evidenceFiles": [
+      "server/index.js",
+      "tests/api-smoke.test.js",
+      "docs/SECURITY.md"
+    ]
+  }
+}
