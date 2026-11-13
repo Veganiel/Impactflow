@@ -313,3 +313,30 @@ html,body{overflow-x:clip}
 .intent-form .field-hint{color:#a9bcae}
 @media(min-width:1001px) and (max-width:1180px){.topbar nav{gap:13px;font-size:12px}.top-actions .btn{white-space:nowrap;padding:11px 13px}.brand small{white-space:nowrap}}
 .tx-link{color:#3f6b45;font-weight:700;text-decoration:underline;text-underline-offset:2px;white-space:nowrap}
+
+/* Milestones & proof */
+.milestone{padding:14px 0;border-top:1px solid var(--line)}
+.ms-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.ms-badge{font:10px var(--mono);letter-spacing:.6px;padding:4px 8px;border-radius:999px;background:#e9edde;color:#4f6150;white-space:nowrap}
+.ms-submitted .ms-badge{background:#f6e7cf;color:#7a5424}
+.ms-paying .ms-badge{background:#e3ead8;color:#3f6b45}
+.ms-paid .ms-badge{background:#dcebd6;color:#2f5b33}
+.ms-amount{margin:8px 0 4px}
+.ms-evidence{margin:4px 0;font-size:14px}.ms-evidence a{color:#3f6b45;font-weight:700;text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}
+.ms-flow{font-size:13px;color:#5f705f;margin:6px 0 4px}.ms-flow b{color:#3f6b45}
+.ms-hint{display:block;color:#6a7a69;font-size:12px;margin-top:4px}
+.ms-status{font-size:13px;margin-top:6px;overflow-wrap:anywhere}
+.milestone-form{margin-top:14px;padding:14px;border:1px dashed #b7c4ad;border-radius:10px;background:rgba(233,237,222,.45)}
+#onchainCampaign label[for^="evidence-"],#onchainCampaign label[for^="msTitle-"],#onchainCampaign label[for^="msAmount-"]{display:block;margin:12px 0 6px;color:#5b6f5c;font:10px var(--mono);letter-spacing:1.2px}
+.milestoneInput{display:block;width:100%;min-height:44px;padding:11px 13px;background:#fffdf6;color:var(--text);border:1px solid #b7c4ad;border-radius:6px;font:14px var(--sans);outline:none}
+.milestoneInput:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(72,107,71,.15)}
+.milestone .btn,.milestone-form .btn{margin-top:10px;width:100%;justify-content:center}
+.role-pill{display:inline-block;margin-top:8px;font:10px var(--mono);letter-spacing:.8px;padding:4px 9px;border-radius:999px;background:#486b47;color:#fffdf4}
+
+/* Live on-chain ledger */
+a.ledger-row{color:inherit;text-decoration:none;transition:background .15s}
+a.ledger-row:hover{background:rgba(233,237,222,.6)}
+a.ledger-row:hover strong{text-decoration:underline;text-underline-offset:2px}
+.ledger-row small{overflow-wrap:anywhere}
+.ledger-tx{font-weight:400!important;color:#6a7a69!important}
+.ledger-foot a strong{color:#3f6b45}

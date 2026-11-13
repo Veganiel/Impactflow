@@ -30,6 +30,8 @@ The escrow contract [`impactflow-escrow-xyz.testnet`](https://testnet.nearblocks
 | | Feature | NEAR technology |
 |---|---|---|
 | 🔒 | **Milestone escrow.** Donations are locked in the contract. Payouts need reviewer approval of submitted evidence. Staked principal can never be paid out early. | Rust smart contract (`near-sdk`), 24 unit tests |
+| 🧾 | **Proof workflow in the app.** Project owners propose milestones and submit public evidence links; the reviewer sees an **Approve & release** button. Each step is a wallet-signed transaction. | Contract calls via NEAR Connect |
+| 📜 | **Live on-chain ledger.** The transparency section lists the escrow's latest donations, evidence submissions and payouts, each linked to its transaction. | NearBlocks indexer + NEAR RPC |
 | 👛 | **Wallet-signed actions.** Create campaigns, approve them and donate straight from the browser. | HOT Labs NEAR Connect |
 | 🌐 | **Cross-chain support.** Donors can pay from many chains: live asset list (200+ assets) and dry quote previews before any funds move. | NEAR Intents 1Click API |
 | 🕶️ | **Optional confidential routing.** Privacy modes are sent with quotes; sign-in uses a NEP-413 signed message. | NEAR Intents, NEP-413 |
@@ -53,9 +55,11 @@ Open <http://localhost:5173>. `dev:all` starts the API on port 8787 and the webs
 1. **Escrow (Explore section).** The two campaign cards are read live from the Testnet contract. Campaign #0 shows a milestone with status `paid`, the result of the payout transaction above.
 2. **Donate.** Select **Connect Testnet wallet**, then **Donate 0.01 NEAR** on an active campaign. The raised total updates from the contract.
 3. **Create a campaign.** Fill in **Create a testnet campaign**. It stays inactive until the reviewer account approves it.
-4. **Cross-chain.** Open **Cross-chain** and wait for the asset list. Pick two assets, enter recipient and refund addresses, then select **Get live quote preview**. This is a dry run, so no funds move.
-5. **Organizations.** Select **Register**, create an account and organization profile, and submit a project. It appears as `pending_review`.
-6. **Reviewer brief.** The last section and [`public/impactflow-evidence.json`](public/impactflow-evidence.json) list every capability with its status and limits.
+4. **Proof flow.** As the campaign owner, use **Propose milestone on-chain**, then paste a public HTTPS link and select **Submit evidence on-chain**. Connected as the reviewer, the milestone shows **Approve & release**, which pays the fixed recipient from escrow.
+5. **Live ledger.** In **See where every token goes**, every row is a real escrow transaction; click one to open it on NearBlocks.
+6. **Cross-chain.** Open **Cross-chain** and wait for the asset list. Pick two assets, enter recipient and refund addresses, then select **Get live quote preview**. This is a dry run, so no funds move.
+7. **Organizations.** Select **Register**, create an account and organization profile, and submit a project. It appears as `pending_review`.
+8. **Reviewer brief.** The last section and [`public/impactflow-evidence.json`](public/impactflow-evidence.json) list every capability with its status and limits.
 
 ## Architecture
 
@@ -74,7 +78,7 @@ flowchart LR
 |---|---|
 | [`contract/src/lib.rs`](contract/src/lib.rs) | Escrow contract: campaigns, donations, milestones, reviewer release, staking |
 | [`app.js`](app.js) | UI, wallet connection, escrow actions, 1Click quote flow |
-| [`server/index.js`](server/index.js) | Accounts and projects API, NEAR Intents proxy, Testnet view calls, AI agent |
+| [`server/index.js`](server/index.js) | Accounts and projects API, NEAR Intents proxy, Testnet view calls (FastNEAR RPC with fallback, short cache), activity feed, AI agent |
 | [`near-intents-auth.js`](near-intents-auth.js) | NEP-413 nonce and signature encoding |
 | [`docs/`](docs) | Escrow design, security notes, Testnet checklist |
 

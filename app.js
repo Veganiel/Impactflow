@@ -300,6 +300,54 @@ function stakingAdminPanel(staking){
  return `<section class="review-card" style="margin:18px 0"><div class="eyebrow">REVIEWER CONFIGURATION · TESTNET</div><h3>Ongoing fund staking settings</h3><p>This contract has no live USD price feed. Set the NEAR amount you currently treat as the $1,000 reference threshold; update it manually when the exchange rate changes. The on-chain rule checks the remaining NEAR escrow.</p>${staking.pool_id?`<p>Approved staking pool: <strong>${esc(staking.pool_id)}</strong></p>`:`<h4>Choose the approved staking pool</h4><p>Only configure a validator pool account you have independently checked. Unstaking may be time-locked.</p><label for="stakingPoolAccount">VALIDATOR POOL ACCOUNT</label><input id="stakingPoolAccount" maxlength="64" placeholder="validator-pool.testnet"><button class="btn btn-outline" id="configureStakingPoolBtn" type="button">Configure pool in reviewer wallet ↗</button><div id="stakingPoolStatus" aria-live="polite"></div>`}<label for="openFundThresholdNear">$1,000 REFERENCE IN NEAR</label><input id="openFundThresholdNear" type="text" inputmode="decimal" value="${currentNear}" placeholder="Enter current NEAR equivalent"><button class="btn btn-outline" id="configureOpenFundThresholdBtn" type="button">Save threshold in reviewer wallet ↗</button><p>Current on-chain threshold: ${minimum>0n?`${currentNear} NEAR`:'not configured'}. This is an admin-maintained reference, not a guaranteed current dollar value.</p><div id="openFundThresholdStatus" aria-live="polite"></div></section>`;
 }
 
+const MILESTONE_LABELS={proposed:'Awaiting evidence',submitted:'Evidence submitted · awaiting review',paying:'Payout in progress',paid:'Paid to recipient'};
+const shortUrl=u=>{try{const x=new URL(u);const t=(x.host+x.pathname).replace(/\/$/,'');return t.length>48?`${t.slice(0,45)}…`:t;}catch{return 'evidence link';}};
+const liquidEscrow=c=>{const v=BigInt(c.remaining_escrow||'0')-BigInt(c.staked_escrow||'0');return v>0n?v:0n;};
+
+function milestoneBlock(cid,i,m,campaign,near){
+ const owner=!!connectedAccount&&connectedAccount===campaign.owner;
+ const reviewer=!!connectedAccount&&connectedAccount===contractAdmin;
+ const uri=/^https:\/\//i.test(m.evidence_uri||'')?m.evidence_uri:null;
+ const evidence=uri?`<p class="ms-evidence">Evidence: <a href="${esc(uri)}" target="_blank" rel="noopener noreferrer nofollow">${esc(shortUrl(uri))} ↗</a></p>`:'';
+ let action='';
+ if(m.status==='proposed'&&owner&&campaign.active)action=`<label for="evidence-${cid}-${i}">EVIDENCE LINK (HTTPS)</label><input id="evidence-${cid}-${i}" class="milestoneInput" type="url" maxlength="500" placeholder="https://… photo report, receipt or public update"><button class="btn btn-outline submitEvidenceBtn" type="button" data-campaign-id="${cid}" data-milestone-id="${i}">Submit evidence on-chain ↗</button>`;
+ else if(m.status==='proposed')action='<small class="ms-hint">Waiting for the project to submit evidence.</small>';
+ else if(m.status==='submitted'&&reviewer)action=`<button class="btn btn-primary releaseMilestoneBtn" type="button" data-campaign-id="${cid}" data-milestone-id="${i}">Approve &amp; release ${near(m.amount)} NEAR ↗</button>`;
+ else if(m.status==='submitted')action='<small class="ms-hint">Waiting for the contract reviewer to check the evidence and release the payout.</small>';
+ return `<div class="milestone ms-${esc(m.status)}"><div class="ms-head"><strong>Milestone ${i+1}: ${esc(m.title)}</strong><span class="ms-badge">${esc(MILESTONE_LABELS[m.status]||m.status)}</span></div><p class="ms-amount">${near(m.amount)} NEAR → ${esc(campaign.recipient||campaign.owner)}</p>${evidence}${action}<div id="milestoneStatus-${cid}-${i}" class="ms-status" aria-live="polite"></div></div>`;
+}
+
+function milestoneProposeForm(cid,campaign,near){
+ if(!connectedAccount||connectedAccount!==campaign.owner||!campaign.active)return '';
+ const liquid=liquidEscrow(campaign);
+ if(liquid===0n)return '<p class="ms-hint">You can propose a milestone once donations are held in escrow.</p>';
+ return `<div class="milestone-form"><div class="eyebrow">YOU OWN THIS CAMPAIGN · PROPOSE A MILESTONE</div><label for="msTitle-${cid}">MILESTONE TITLE</label><input id="msTitle-${cid}" class="milestoneInput" maxlength="120" placeholder="e.g. Buy veterinary supplies for 10 dogs"><label for="msAmount-${cid}">PAYOUT AMOUNT (NEAR)</label><input id="msAmount-${cid}" class="milestoneInput" type="text" inputmode="decimal" placeholder="Up to ${near(liquid)} NEAR"><button class="btn btn-outline proposeMilestoneBtn" type="button" data-campaign-id="${cid}">Propose milestone on-chain ↗</button><div id="msProposeStatus-${cid}" class="ms-status" aria-live="polite"></div></div>`;
+}
+
+async function afterEscrowTx(statusId,message,result){
+ const hash=result?.transaction?.hash;
+ await loadOnchainCampaign();
+ const show=()=>{const el=document.getElementById(statusId);if(el)el.innerHTML=`${esc(message)}${txLink(hash)}`;};
+ show();toast(message);
+ // Finalized RPC data can lag a few seconds behind the wallet result; refresh once more.
+ setTimeout(async()=>{await loadOnchainCampaign();show();},6000);
+}
+
+const ACTIVITY_LABELS={donate:['Donation received','✳'],create_campaign:['Campaign created','＋'],approve_campaign:['Campaign approved by reviewer','✓'],propose_milestone:['Milestone proposed','◇'],submit_milestone_evidence:['Evidence submitted','✎'],approve_and_release:['Milestone payout released','↗'],stake_campaign_escrow:['Escrow staked','◎'],unstake_campaign_escrow:['Unstake started','◎'],withdraw_campaign_escrow:['Stake withdrawn to campaign','◎'],set_staking_pool:['Staking pool configured','⚙'],set_open_fund_stake_threshold:['Staking threshold updated','⚙'],migrate:['Contract state migrated','⚙'],migrate_v2:['Contract state migrated','⚙'],DEPLOY_CONTRACT:['Contract code deployed','⚙'],new:['Contract initialized','⚙'],CREATE_ACCOUNT:['Contract account created','⚙']};
+const timeAgo=ms=>{const d=Math.max(0,Date.now()-ms),m=Math.round(d/60000);if(m<60)return `${m||1} min ago`;const h=Math.round(m/60);if(h<48)return `${h} h ago`;return new Date(ms).toLocaleDateString('en-GB',{day:'numeric',month:'short'});};
+async function loadLiveLedger(){
+ const box=$('#liveLedger');if(!box)return;
+ try{
+  const {items=[],contractId}=await api('/api/escrow/activity');
+  const ADMIN=['DEPLOY_CONTRACT','CREATE_ACCOUNT','migrate','migrate_v2','new','set_staking_pool','set_open_fund_stake_threshold'];const funding=items.filter(t=>t.ok&&!ADMIN.includes(t.method));const rows=funding.slice(0,5);for(const key of ['approve_and_release','submit_milestone_evidence']){const hit=funding.find(t=>t.method===key);if(hit&&!rows.includes(hit))rows.push(hit);}rows.sort((a,b)=>b.time-a.time);
+  if(!rows.length)return;
+  const fmt=y=>{const v=Number(BigInt(y)*10000n/10n**24n)/10000;return v.toLocaleString('en-US',{maximumFractionDigits:4});};
+  const flows=items.filter(t=>t.ok&&t.method==='donate').length,payouts=items.filter(t=>t.ok&&t.method==='approve_and_release').length;
+  box.innerHTML=`<div class="ledger-head"><div><small>LIVE ON-CHAIN LEDGER</small><strong>Latest escrow activity</strong></div><span class="ledger-live"><i></i>NEAR TESTNET</span></div>${rows.map(t=>{const [label,icon]=ACTIVITY_LABELS[t.method]||[t.method.replaceAll('_',' '),'•'];const amount=t.method==='donate'&&t.deposit!=='0'?`<b>+${fmt(t.deposit)} NEAR</b>`:'<b class="ledger-tx">tx ↗</b>';return `<a class="ledger-row" href="https://testnet.nearblocks.io/txns/${encodeURIComponent(t.hash)}" target="_blank" rel="noopener noreferrer"><span class="ledger-icon">${icon}</span><div><strong>${esc(label)}</strong><small>${esc(t.signer)} · ${esc(timeAgo(t.time))}</small></div>${amount}</a>`;}).join('')}<div class="ledger-foot"><span>${flows} DONATIONS · ${payouts} PAYOUT${payouts===1?'':'S'} IN RECENT HISTORY</span><a href="https://testnet.nearblocks.io/address/${encodeURIComponent(contractId||escrowContractId)}" target="_blank" rel="noopener noreferrer"><strong>ALL TRANSACTIONS ↗</strong></a></div>`;
+  const copy=$('#ledgerCopy');if(copy)copy.textContent='Every donation, evidence submission and payout is a public transaction. The ledger shows the latest activity of the ImpactFlow escrow contract, read live from NEAR Testnet; each row links to the transaction.';
+ }catch(error){console.warn('Live ledger unavailable; showing sample ledger.',error);}
+}
+
 async function sendEscrowCall(methodName,args){
  if(!connectedAccount||!nearConnector)throw new Error('Connect the NEAR Testnet wallet first.');
  const wallet=await nearConnector.wallet();
@@ -318,11 +366,45 @@ async function loadOnchainCampaign(){
   box.style.padding='0 24px';
   const creator=escrowCampaignCreator();
   if(!results.length){box.innerHTML=`${creator}${stakingAdminPanel(staking)}<div class="eyebrow">LIVE ON NEAR ${esc(network.toUpperCase())}</div><h3>No on-chain campaigns yet</h3><p>Create a Testnet campaign above. The local project submission form only queues proposals for review.</p>`;return;}
-  box.innerHTML=`${creator}${stakingAdminPanel(staking)}<div class="eyebrow">${results.length} CAMPAIGN${results.length===1?'':'S'} · LIVE ON NEAR ${esc(network.toUpperCase())}</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:20px;margin-top:16px">${results.map(({id,campaign})=>{const openEnded=BigInt(campaign.goal||'0')===0n,threshold=BigInt(staking?.minimum_open_fund_stake||'0'),progress=openEnded?(threshold>0n?Math.min(100,Number(BigInt(campaign.remaining_escrow||'0')*100n/threshold)):0):Math.min(100,Number(campaign.raised)/Number(campaign.goal)*100);const milestones=(campaign.milestones||[]).map((m,i)=>`<div style="padding:12px 0;border-top:1px solid var(--line,#333)"><strong>Milestone ${i+1}: ${esc(m.title)}</strong><p>Amount: ${near(m.amount)} NEAR · Status: ${esc(m.status)}</p><small>Evidence: submitted link; not independently verified</small></div>`).join('');return `<article style="padding:22px;border:1px solid var(--line,#444);border-radius:14px;min-width:0"><div class="eyebrow">ON-CHAIN CAMPAIGN #${id}</div><h3 style="font-size:24px;margin:12px 0">${esc(campaign.title)}</h3><p style="white-space:pre-wrap">${esc(campaign.description)}</p><p>Recipient: ${esc(campaign.recipient||campaign.owner)}</p><div style="margin:22px 0"><div style="display:flex;justify-content:space-between;gap:12px"><strong>${near(campaign.raised)} NEAR raised</strong><span>${openEnded?'ONGOING FUND · NO TARGET':`${near(campaign.goal)} NEAR goal`}</span></div><div style="height:8px;background:var(--line,#333);border-radius:8px;margin-top:12px;overflow:hidden"><div style="height:100%;width:${progress}%;background:#65d6a2;border-radius:8px"></div></div><p>${openEnded?(threshold>0n?`${near(campaign.remaining_escrow)} / ${near(threshold)} NEAR staking threshold · keeps accepting donations`:'Ongoing fund · staking threshold not configured'):`${progress>0&&progress<0.1?"&lt;0.1":progress.toFixed(1)}% funded`}</p></div><p>Remaining escrow: ${near(campaign.remaining_escrow)} NEAR</p><p>Campaign status: ${campaign.active?'Active':'Awaiting reviewer approval'}</p><h4 style="margin-top:24px">Milestones</h4>${milestones||'<p>No milestones yet.</p>'}<div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line,#444)"><h4>Optional NEAR staking</h4>${campaignStakingAction(id,campaign,staking,near)}</div><div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line,#444)"><h4>${campaign.active?'Support this campaign':'Campaign review'}</h4>${campaignReviewAction(id,campaign)}</div></article>`;}).join('')}</div><p style="margin-top:20px;font-size:12px;opacity:.7">Testnet demonstration only. Staking is opt-in, carries pool and smart-contract risk, and may lock funds while unstaking. Milestone status reflects contract data, not independent verification of real-world impact. Open-fund thresholds are reviewer-maintained NEAR references, not live USD prices.</p><a href="https://testnet.nearblocks.io/address/${encodeURIComponent(esc(escrowContractId))}" target="_blank" rel="noopener noreferrer">View smart contract on NEAR Explorer ↗</a>`;
+  box.innerHTML=`${creator}${stakingAdminPanel(staking)}<div class="eyebrow">${results.length} CAMPAIGN${results.length===1?'':'S'} · LIVE ON NEAR ${esc(network.toUpperCase())}</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:20px;margin-top:16px">${results.map(({id,campaign})=>{const openEnded=BigInt(campaign.goal||'0')===0n,threshold=BigInt(staking?.minimum_open_fund_stake||'0'),progress=openEnded?(threshold>0n?Math.min(100,Number(BigInt(campaign.remaining_escrow||'0')*100n/threshold)):0):Math.min(100,Number(campaign.raised)/Number(campaign.goal)*100);const milestones=(campaign.milestones||[]).map((m,i)=>milestoneBlock(id,i,m,campaign,near)).join('');const role=connectedAccount&&connectedAccount===contractAdmin?'<span class="role-pill">You are the contract reviewer</span>':connectedAccount&&connectedAccount===campaign.owner?'<span class="role-pill">You own this campaign</span>':'';return `<article style="padding:22px;border:1px solid var(--line,#444);border-radius:14px;min-width:0"><div class="eyebrow">ON-CHAIN CAMPAIGN #${id}</div>${role}<h3 style="font-size:24px;margin:12px 0">${esc(campaign.title)}</h3><p style="white-space:pre-wrap">${esc(campaign.description)}</p><p>Recipient: ${esc(campaign.recipient||campaign.owner)}</p><div style="margin:22px 0"><div style="display:flex;justify-content:space-between;gap:12px"><strong>${near(campaign.raised)} NEAR raised</strong><span>${openEnded?'ONGOING FUND · NO TARGET':`${near(campaign.goal)} NEAR goal`}</span></div><div style="height:8px;background:var(--line,#333);border-radius:8px;margin-top:12px;overflow:hidden"><div style="height:100%;width:${progress}%;background:#65d6a2;border-radius:8px"></div></div><p>${openEnded?(threshold>0n?`${near(campaign.remaining_escrow)} / ${near(threshold)} NEAR staking threshold · keeps accepting donations`:'Ongoing fund · staking threshold not configured'):`${progress>0&&progress<0.1?"&lt;0.1":progress.toFixed(1)}% funded`}</p></div><p>Remaining escrow: ${near(campaign.remaining_escrow)} NEAR</p><p>Campaign status: ${campaign.active?'Active':'Awaiting reviewer approval'}</p><h4 style="margin-top:24px">Milestones &amp; proof</h4><p class="ms-flow">Funds leave escrow only after <b>①</b> the project proposes a milestone, <b>②</b> submits public evidence and <b>③</b> the reviewer approves the release.</p>${milestones||'<p>No milestones yet.</p>'}${milestoneProposeForm(id,campaign,near)}<div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line,#444)"><h4>Optional NEAR staking</h4>${campaignStakingAction(id,campaign,staking,near)}</div><div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line,#444)"><h4>${campaign.active?'Support this campaign':'Campaign review'}</h4>${campaignReviewAction(id,campaign)}</div></article>`;}).join('')}</div><p style="margin-top:20px;font-size:12px;opacity:.7">Testnet demonstration only. Staking is opt-in, carries pool and smart-contract risk, and may lock funds while unstaking. Milestone status reflects contract data. Evidence links are provided by the project and checked by the reviewer; the contract does not independently verify real-world impact. Open-fund thresholds are reviewer-maintained NEAR references, not live USD prices.</p><a href="https://testnet.nearblocks.io/address/${encodeURIComponent(esc(escrowContractId))}" target="_blank" rel="noopener noreferrer">View smart contract on NEAR Explorer ↗</a>`;
  }catch(error){box.innerHTML='<h3>Testnet escrow is temporarily unavailable</h3><p>ImpactFlow could not read the deployed Testnet contract right now. Check the API and network connection, then retry. Local project proposals and NEAR Intents routes are separate from this Testnet escrow.</p>';console.error('Could not load on-chain campaigns:',error);}
 }
 
 $('#onchainCampaign').addEventListener('click',async e=>{
+ const propose=e.target.closest('.proposeMilestoneBtn');
+ if(propose){
+  const id=Number(propose.dataset.campaignId),status=$(`#msProposeStatus-${id}`);
+  const title=$(`#msTitle-${id}`).value.trim();
+  let amount;
+  try{
+   if(title.length<5||title.length>120)throw new Error('Use a milestone title from 5 to 120 characters.');
+   const rawAmount=$(`#msAmount-${id}`).value.trim();
+   if(/^0*(\.0*)?$/.test(rawAmount))throw new Error('Enter a payout amount above zero.');
+   amount=nearToYocto(rawAmount);
+  }catch(error){status.textContent=error.message;return;}
+  propose.disabled=true;propose.textContent='Confirm in wallet…';
+  try{const result=await sendEscrowCall('propose_milestone',{campaign_id:id,title,amount});await afterEscrowTx(`msProposeStatus-${id}`,'Milestone proposed on Testnet.',result);}
+  catch(error){status.textContent=`Milestone was not proposed: ${error.message}`;propose.disabled=false;propose.textContent='Propose milestone on-chain ↗';}
+  return;
+ }
+ const evidenceBtn=e.target.closest('.submitEvidenceBtn');
+ if(evidenceBtn){
+  const id=Number(evidenceBtn.dataset.campaignId),mid=Number(evidenceBtn.dataset.milestoneId),status=$(`#milestoneStatus-${id}-${mid}`);
+  const uri=$(`#evidence-${id}-${mid}`).value.trim();
+  if(!/^https:\/\/[^\s]+\.[^\s]+/i.test(uri)||uri.length>500){status.textContent='Enter a public HTTPS link (up to 500 characters).';return;}
+  evidenceBtn.disabled=true;evidenceBtn.textContent='Confirm in wallet…';
+  try{const result=await sendEscrowCall('submit_milestone_evidence',{campaign_id:id,milestone_id:mid,evidence_uri:uri});await afterEscrowTx(`milestoneStatus-${id}-${mid}`,'Evidence submitted on Testnet. The reviewer can now release the payout.',result);}
+  catch(error){status.textContent=`Evidence was not submitted: ${error.message}`;evidenceBtn.disabled=false;evidenceBtn.textContent='Submit evidence on-chain ↗';}
+  return;
+ }
+ const release=e.target.closest('.releaseMilestoneBtn');
+ if(release){
+  const id=Number(release.dataset.campaignId),mid=Number(release.dataset.milestoneId),status=$(`#milestoneStatus-${id}-${mid}`);
+  const label=release.textContent;release.disabled=true;release.textContent='Confirm in reviewer wallet…';
+  try{const result=await sendEscrowCall('approve_and_release',{campaign_id:id,milestone_id:mid});await afterEscrowTx(`milestoneStatus-${id}-${mid}`,'Payout approved and released from escrow.',result);}
+  catch(error){status.textContent=`Payout was not released: ${error.message}`;release.disabled=false;release.textContent=label;}
+  return;
+ }
  const configurePool=e.target.closest('#configureStakingPoolBtn');
  if(configurePool){
   const poolId=$('#stakingPoolAccount').value.trim(),status=$('#stakingPoolStatus');
@@ -407,10 +489,8 @@ $('#onchainCampaign').addEventListener('click',async e=>{
  try{
   const wallet=await nearConnector.wallet();
   const result=await wallet.signAndSendTransaction({receiverId:escrowContractId,actions:[{type:'FunctionCall',params:{methodName:'donate',args:{campaign_id:id},gas:'100000000000000',deposit}}]});
-  const hash=result?.transaction?.hash;
-  status.innerHTML=hash?`Donation submitted.${txLink(hash)}`:'Transaction submitted. Updating campaign…';
-  await loadOnchainCampaign();
-  toast(`Donation of ${amount} NEAR for campaign #${id} submitted on Testnet.`);
+  status.textContent='Transaction submitted. Updating campaign…';
+  await afterEscrowTx(`donationStatus-${id}`,`Donation of ${amount} NEAR for campaign #${id} submitted on Testnet.`,result);
  }catch(error){
   console.error('Donation failed:',error);
   status.textContent=`Donation failed or cancelled: ${error.message}`;
@@ -452,4 +532,5 @@ primaryNav.addEventListener('click',e=>{const link=e.target.closest('a');if(!lin
 
 const sum=8420+6180+4250;$('#totalRaised').textContent='$'+sum.toLocaleString('en-US');$('#heroRaised').textContent='$'+sum.toLocaleString('en-US');
 
-refreshAccount();updateWalletUI();initNearConnect();loadIntentTokens();loadOnchainCampaign();
+refreshAccount();updateWalletUI();initNearConnect();loadIntentTokens();loadOnchainCampaign();loadLiveLedger();
+

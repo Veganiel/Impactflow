@@ -38,9 +38,11 @@ app.use('/api/', (req, res, next) => {
 });
 const requestWindows = new Map();
 app.use('/api/', (req,res,next) => {
-  const now = Date.now(), key = req.ip || 'unknown', current = requestWindows.get(key);
+  // Reads (page loads, live Testnet/Intents data) get a generous budget; writes stay strict.
+  const write = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+  const now = Date.now(), key = `${req.ip || 'unknown'}:${write ? 'w' : 'r'}`, current = requestWindows.get(key);
   if (!current || now - current.start > 60_000) requestWindows.set(key, { start: now, count: 1 });
-  else if (++current.count > 40) return res.status(429).json({ error: 'Too many requests. Try again in a minute.' });
+  else if (++current.count > (write ? 40 : 300)) return res.status(429).json({ error: 'Too many requests. Try again in a minute.' });
   if (requestWindows.size > 2_000) for (const [ip, window] of requestWindows) if (now - window.start > 60_000) requestWindows.delete(ip);
   next();
 });
@@ -148,7 +150,23 @@ app.post('/api/projects',auth,async(req,res)=>{const org=db.organizations.find(o
 app.get('/api/projects/mine',auth,(req,res)=>res.json({projects:db.projects.filter(p=>p.ownerId===req.user.id).map(p=>({...p,ownerId:undefined}))}));
 
 app.get('/api/near-intents/tokens',async(_req,res)=>{try{const upstream=await fetch(`${API}/v0/tokens`,{signal:AbortSignal.timeout(15_000)});const body=await upstream.text();res.status(upstream.status).type(upstream.headers.get('content-type')||'application/json').send(body);}catch{res.status(502).json({error:'Could not retrieve supported assets from NEAR Intents.'});}});
-app.get('/api/near-intents/nonce-salt',async(_req,res)=>{try{const response=await fetch('https://rpc.mainnet.near.org',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:'impactflow-intents-salt',method:'query',params:{request_type:'call_function',finality:'final',account_id:'intents.near',method_name:'current_salt',args_base64:'e30='}}),signal:AbortSignal.timeout(15_000)});if(!response.ok)throw new Error('NEAR RPC request failed');const rpc=await response.json();if(rpc.error||!Array.isArray(rpc.result?.result))throw new Error('NEAR RPC returned no salt');const result=JSON.parse(Buffer.from(rpc.result.result).toString('utf8'));if(typeof result!=='string'||!/^[0-9a-f]{8}$/i.test(result))throw new Error('Unexpected NEAR Intents salt');res.json({salt:result});}catch{res.status(502).json({error:'Could not load the current NEAR Intents signing salt. Try again shortly.'});}});
+// rpc.*.near.org is deprecated and heavily rate-limited; prefer FastNEAR and fall back to it.
+const RPC_URLS = {
+  mainnet: [process.env.NEAR_MAINNET_RPC_URL, 'https://free.rpc.fastnear.com', 'https://rpc.mainnet.near.org'].filter(Boolean),
+  testnet: [process.env.NEAR_RPC_URL, 'https://test.rpc.fastnear.com', 'https://rpc.testnet.near.org'].filter(Boolean)
+};
+async function rpcCall(network, body) {
+  let lastError = new Error('NEAR RPC request failed.');
+  for (const url of RPC_URLS[network]) {
+    try {
+      const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
+      if (!response.ok) { lastError = new Error(`NEAR RPC request failed (${response.status}).`); continue; }
+      return await response.json();
+    } catch (error) { lastError = error; }
+  }
+  throw lastError;
+}
+app.get('/api/near-intents/nonce-salt',async(_req,res)=>{try{const rpc=await rpcCall('mainnet',{jsonrpc:'2.0',id:'impactflow-intents-salt',method:'query',params:{request_type:'call_function',finality:'final',account_id:'intents.near',method_name:'current_salt',args_base64:'e30='}});if(rpc.error||!Array.isArray(rpc.result?.result))throw new Error('NEAR RPC returned no salt');const result=JSON.parse(Buffer.from(rpc.result.result).toString('utf8'));if(typeof result!=='string'||!/^[0-9a-f]{8}$/i.test(result))throw new Error('Unexpected NEAR Intents salt');res.json({salt:result});}catch{res.status(502).json({error:'Could not load the current NEAR Intents signing salt. Try again shortly.'});}});
 function intentQuotePayload(body,dry){const {originAsset,destinationAsset,amount,recipient,refundTo,confidentiality='public',slippageTolerance=100}=body||{};if(![originAsset,destinationAsset,amount,recipient,refundTo].every(v=>typeof v==='string'&&v.trim()))return {error:'originAsset, destinationAsset, amount, recipient and refundTo are required.'};if(!/^\d+$/.test(amount)||amount==='0')return {error:'amount must be a positive integer in the asset smallest unit.'};if(/wrap\.near|near-native/i.test(destinationAsset)&&/\.testnet$/.test(recipient.trim()))return {error:'NEAR Intents routes use Mainnet. Enter a NEAR Mainnet recipient address; a Testnet wallet address will not work.'};if(!['public','basic','advanced'].includes(confidentiality))return {error:'Unsupported confidentiality setting.'};return {payload:{dry,swapType:'EXACT_INPUT',originAsset,destinationAsset,amount,recipient,refundTo,depositType:'ORIGIN_CHAIN',recipientType:'DESTINATION_CHAIN',refundType:'ORIGIN_CHAIN',deadline:new Date(Date.now()+10*60_000).toISOString(),slippageTolerance:Math.min(500,Math.max(1,Number(slippageTolerance)||100)),...(confidentiality==='public'?{}:{confidentiality}),referral:'impactflow'}};}
 async function forwardIntents(path,payload,res,{accessToken}={}){try{const headers={'Content-Type':'application/json'};if(process.env.NEAR_INTENTS_JWT){headers['X-API-Key']=process.env.NEAR_INTENTS_JWT;if(!accessToken)headers.Authorization=`Bearer ${process.env.NEAR_INTENTS_JWT}`;}if(accessToken)headers.Authorization=`Bearer ${accessToken}`;const upstream=await fetch(`${API}${path}`,{method:'POST',headers,body:JSON.stringify(payload),signal:AbortSignal.timeout(25_000)});const body=await upstream.text();res.status(upstream.status).type(upstream.headers.get('content-type')||'application/json').send(body);}catch{res.status(502).json({error:'NEAR Intents service timed out or is temporarily unavailable. Try again shortly.'});}}
 app.post('/api/near-intents/authenticate',async(req,res)=>{const signedData=req.body?.signedData;if(!signedData||signedData.standard!=='nep413'||!signedData.payload||!signedData.public_key||!signedData.signature)return res.status(400).json({error:'A valid NEP-413 signedData payload is required.'});await forwardIntents('/v0/auth/authenticate',{signedData},res);});
@@ -160,38 +178,36 @@ app.get('/api/near-intents/status',async(req,res)=>{const depositAddress=clean(r
 app.post('/api/near-intents/deposit-submit',async(req,res)=>{const {txHash,depositAddress,nearSenderAccount,memo,depositMemo}=req.body||{};if(![txHash,depositAddress].every(v=>typeof v==='string'&&v.trim()))return res.status(400).json({error:'txHash and depositAddress are required.'});const depositNote=clean(memo||depositMemo,256);const payload={txHash:clean(txHash,256),depositAddress:clean(depositAddress,256),...(nearSenderAccount?{nearSenderAccount:clean(nearSenderAccount,128)}:{}),...(depositNote?{memo:depositNote}:{})};await forwardIntents('/v0/deposit/submit',payload,res);});
 // NEAR Testnet – ImpactFlow Escrow
 const NEAR_CONTRACT_ID = process.env.NEAR_CONTRACT_ID || 'impactflow-escrow-xyz.testnet';
-const NEAR_RPC_URL = 'https://rpc.testnet.near.org';
+// Short cache so page reloads and wallet events don't hammer the public RPC.
+const viewCache = new Map();
+const VIEW_CACHE_MS = 4_000;
 
 async function nearView(methodName, args = {}) {
-  const response = await fetch(NEAR_RPC_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 'impactflow',
-      method: 'query',
-      params: {
-        request_type: 'call_function',
-        finality: 'final',
-        account_id: NEAR_CONTRACT_ID,
-        method_name: methodName,
-        args_base64: Buffer.from(JSON.stringify(args)).toString('base64')
-      }
-    }),
-    signal: AbortSignal.timeout(15_000)
+  const cacheKey = `${methodName}:${JSON.stringify(args)}`;
+  const cached = viewCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < VIEW_CACHE_MS) return cached.value;
+  if (viewCache.size > 500) viewCache.clear();
+
+  const result = await rpcCall('testnet', {
+    jsonrpc: '2.0',
+    id: 'impactflow',
+    method: 'query',
+    params: {
+      request_type: 'call_function',
+      finality: 'final',
+      account_id: NEAR_CONTRACT_ID,
+      method_name: methodName,
+      args_base64: Buffer.from(JSON.stringify(args)).toString('base64')
+    }
   });
-
-  if (!response.ok) {
-    throw new Error('NEAR RPC request failed.');
-  }
-
-  const result = await response.json();
 
   if (result.error) {
     throw new Error(result.error.message || 'NEAR RPC error.');
   }
 
-  return JSON.parse(Buffer.from(result.result.result).toString());
+  const value = JSON.parse(Buffer.from(result.result.result).toString());
+  viewCache.set(cacheKey, { at: Date.now(), value });
+  return value;
 }
 
 // Kampagnenanzahl aus dem Smart Contract
@@ -226,6 +242,39 @@ app.get('/api/escrow/staking', async (_req, res) => {
 });
 
 // Einzelne Kampagne aus dem Smart Contract
+// Latest escrow transactions from the public NearBlocks indexer (cached to respect its free rate limit).
+let activityCache = { at: 0, items: null };
+app.get('/api/escrow/activity', async (_req, res) => {
+  try {
+    if (!activityCache.items || Date.now() - activityCache.at > 60_000) {
+      const url = `https://api-testnet.nearblocks.io/v3/accounts/${encodeURIComponent(NEAR_CONTRACT_ID)}/txns?per_page=25`;
+      const upstream = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10_000) });
+      if (!upstream.ok) throw new Error(`NearBlocks responded ${upstream.status}`);
+      const body = await upstream.json();
+      const rows = Array.isArray(body?.data) ? body.data : [];
+      activityCache = {
+        at: Date.now(),
+        items: rows.map(tx => {
+          const action = Array.isArray(tx.actions) ? tx.actions[0] || {} : {};
+          return {
+            hash: String(tx.transaction_hash || ''),
+            method: String(action.method || action.action || '').slice(0, 64),
+            signer: String(tx.signer_account_id || '').slice(0, 64),
+            deposit: /^\d+$/.test(String(tx.actions_agg?.deposit ?? '')) ? String(tx.actions_agg.deposit) : '0',
+            time: Math.floor(Number(tx.block_timestamp || 0) / 1e6),
+            ok: tx.outcomes?.status !== false
+          };
+        }).filter(item => /^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(item.hash))
+      };
+    }
+    res.json({ contractId: NEAR_CONTRACT_ID, network: 'testnet', source: 'nearblocks', items: activityCache.items });
+  } catch (error) {
+    console.error('Escrow activity error:', error.message);
+    if (activityCache.items) return res.json({ contractId: NEAR_CONTRACT_ID, network: 'testnet', source: 'nearblocks', stale: true, items: activityCache.items });
+    res.status(502).json({ error: 'On-chain activity is temporarily unavailable.' });
+  }
+});
+
 app.get('/api/escrow/campaign/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
