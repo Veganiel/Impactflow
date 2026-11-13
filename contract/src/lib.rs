@@ -19,6 +19,8 @@ const STAKE_EXIT_BUFFER_MS: u64 = 3 * DAY_MS;
 /// A campaign's hold date must be at least one day and at most three years in the future when set.
 const MIN_HOLD_MS: u64 = DAY_MS;
 const MAX_HOLD_MS: u64 = 3 * 365 * DAY_MS;
+/// Upper bound on milestones per campaign so an owner cannot grow storage without limit.
+const MAX_MILESTONES: usize = 20;
 
 #[derive(BorshSerialize, BorshDeserialize, Clone)]
 #[borsh(crate = "near_sdk::borsh")]
@@ -246,6 +248,8 @@ impl ImpactFlowEscrow {
     }
 
     /// Create a campaign. The caller is its owner and the fixed payout recipient.
+    /// The caller must attach enough NEAR to pay for the storage the campaign uses; the excess is refunded.
+    #[payable]
     pub fn create_campaign(
         &mut self,
         title: String,
@@ -255,6 +259,7 @@ impl ImpactFlowEscrow {
     ) -> u64 {
         let owner = env::predecessor_account_id();
         assert_valid_hold_date(hold_until_ms);
+        let storage_before = env::storage_usage();
         assert!(title.trim().len() >= 8 && title.len() <= 120, "Title must be 8-120 chars");
         assert!(description.trim().len() >= 30 && description.len() <= 2_000, "Description must be 30-2000 chars");
         // A zero goal marks an ongoing fund with no fundraising cap.
@@ -276,6 +281,10 @@ impl ImpactFlowEscrow {
         };
         self.campaigns.insert(id, campaign);
         self.campaign_hold_until.insert(id, hold_until_ms);
+        // Persist now so storage_usage reflects the new entries before charging for them.
+        self.campaigns.flush();
+        self.campaign_hold_until.flush();
+        charge_storage(storage_before);
         id
     }
 
@@ -468,6 +477,7 @@ impl ImpactFlowEscrow {
         assert_eq!(env::predecessor_account_id(), campaign.owner, "Only campaign owner");
         assert!(campaign.active, "Campaign is not active");
         assert!(title.trim().len() >= 5 && title.len() <= 120, "Milestone title must be 5-120 chars");
+        assert!(campaign.milestones.len() < MAX_MILESTONES, "A campaign can have at most 20 milestones");
         let campaign_staked = if self.stake_campaign_id == Some(campaign_id) { self.staked_principal } else { 0 };
         assert!(self.stake_state != StakeState::CheckingWithdraw && self.stake_state != StakeState::Withdrawing, "Staking withdrawal is in progress");
         assert!(amount.0 > 0 && amount.0 <= campaign.remaining_escrow.saturating_sub(campaign_staked), "Milestone amount exceeds liquid campaign escrow");
@@ -630,6 +640,18 @@ pub struct StakingConfigView {
     pub now_ms: u64,
 }
 
+/// Charge the caller for storage added since `storage_before` and refund any excess deposit.
+fn charge_storage(storage_before: u64) {
+    let used = env::storage_usage().saturating_sub(storage_before) as u128;
+    let cost = env::storage_byte_cost().as_yoctonear().checked_mul(used).expect("Storage cost overflow");
+    let attached = env::attached_deposit().as_yoctonear();
+    assert!(attached >= cost, "Attach at least {} yoctoNEAR to cover campaign storage", cost);
+    let refund = attached - cost;
+    if refund > 0 {
+        Promise::new(env::predecessor_account_id()).transfer(NearToken::from_yoctonear(refund)).detach();
+    }
+}
+
 fn assert_valid_hold_date(hold_until_ms: u64) {
     let now = env::block_timestamp_ms();
     assert!(hold_until_ms >= now.saturating_add(MIN_HOLD_MS), "Hold date must be at least one day in the future");
@@ -772,7 +794,7 @@ mod tests {
     }
 
     fn create_approved_campaign(contract: &mut ImpactFlowEscrow) -> u64 {
-        set_context("ngo.testnet", NearToken::from_yoctonear(0));
+        set_context("ngo.testnet", NearToken::from_near(1));
         let id = contract.create_campaign(
             "Restore local habitats".to_string(),
             "Funding native habitat restoration and measurable biodiversity work.".to_string(),
@@ -787,7 +809,7 @@ mod tests {
     #[test]
     fn campaign_creation_fixes_owner_as_recipient() {
         let mut contract = initialized();
-        set_context("ngo.testnet", NearToken::from_yoctonear(0));
+        set_context("ngo.testnet", NearToken::from_near(1));
         let id = contract.create_campaign(
             "Restore local habitats".to_string(),
             "Funding native habitat restoration and measurable biodiversity work.".to_string(),
@@ -804,7 +826,7 @@ mod tests {
     #[test]
     fn only_reviewer_can_approve_campaign() {
         let mut contract = initialized();
-        set_context("ngo.testnet", NearToken::from_yoctonear(0));
+        set_context("ngo.testnet", NearToken::from_near(1));
         let id = contract.create_campaign("Restore local habitats".to_string(), "Funding native habitat restoration and measurable biodiversity work.".to_string(), U128(10), HOLD);
         set_context("attacker.testnet", NearToken::from_yoctonear(0));
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| contract.approve_campaign(id)));
@@ -814,7 +836,7 @@ mod tests {
     #[test]
     fn donations_are_rejected_before_campaign_approval() {
         let mut contract = initialized();
-        set_context("ngo.testnet", NearToken::from_yoctonear(0));
+        set_context("ngo.testnet", NearToken::from_near(1));
         let id = contract.create_campaign("Restore local habitats".to_string(), "Funding native habitat restoration and measurable biodiversity work.".to_string(), U128(10), HOLD);
         set_context("donor.testnet", NearToken::from_near(1));
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| contract.donate(id)));
@@ -920,7 +942,7 @@ mod tests {
     #[test]
     fn fully_funded_owner_can_start_optional_staking() {
         let mut contract = initialized();
-        set_context("ngo.testnet", NearToken::from_yoctonear(0));
+        set_context("ngo.testnet", NearToken::from_near(1));
         let id = contract.create_campaign(
             "Restore local habitats".to_string(),
             "Funding native habitat restoration and measurable biodiversity work.".to_string(),
@@ -1213,7 +1235,7 @@ mod tests {
     }
 
     fn funded_campaign_with_pool(contract: &mut ImpactFlowEscrow, hold_until_ms: u64) -> u64 {
-        set_context("ngo.testnet", NearToken::from_yoctonear(0));
+        set_context("ngo.testnet", NearToken::from_near(1));
         let id = contract.create_campaign(
             "Restore local habitats".to_string(),
             "Funding native habitat restoration and measurable biodiversity work.".to_string(),
@@ -1231,7 +1253,7 @@ mod tests {
     #[test]
     fn campaign_requires_a_hold_date_between_one_day_and_three_years() {
         let mut contract = initialized();
-        set_context("ngo.testnet", NearToken::from_yoctonear(0));
+        set_context("ngo.testnet", NearToken::from_near(1));
         for bad in [START_MS, START_MS + DAY_MS - 1, START_MS + MAX_HOLD_MS + 1] {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 contract.create_campaign("Restore local habitats".to_string(), "Funding native habitat restoration and measurable biodiversity work.".to_string(), U128(10), bad);
@@ -1392,6 +1414,51 @@ mod tests {
         });
         set_context("attacker.testnet", NearToken::from_yoctonear(0));
         let result = std::panic::catch_unwind(|| ImpactFlowEscrow::migrate_v3());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn creating_a_campaign_without_a_storage_deposit_is_rejected() {
+        let mut contract = initialized();
+        set_context("spammer.testnet", NearToken::from_yoctonear(0));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            contract.create_campaign("Restore local habitats".to_string(), "Funding native habitat restoration and measurable biodiversity work.".to_string(), U128(10), HOLD);
+        }));
+        // On-chain the panic reverts every state change; the unit test only checks that it panics.
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn storage_deposit_covers_the_bytes_the_campaign_adds() {
+        let mut contract = initialized();
+        set_context("ngo.testnet", NearToken::from_near(1));
+        let before = env::storage_usage();
+        let id = contract.create_campaign("Restore local habitats".to_string(), "x".repeat(2_000), U128(10), HOLD);
+        let used = env::storage_usage() - before;
+        assert!(used > 2_000, "campaign storage should include the description");
+        // A deposit just below the real cost must fail for an identical campaign.
+        let cost = env::storage_byte_cost().as_yoctonear() * used as u128;
+        set_context("ngo.testnet", NearToken::from_yoctonear(cost - 1));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            contract.create_campaign("Restore local habitats".to_string(), "x".repeat(2_000), U128(10), HOLD);
+        }));
+        assert!(result.is_err());
+        assert_eq!(contract.get_campaign(id).unwrap().title, "Restore local habitats");
+    }
+
+    #[test]
+    fn a_campaign_cannot_exceed_twenty_milestones() {
+        let mut contract = initialized();
+        let id = create_approved_campaign(&mut contract);
+        set_context("donor.testnet", NearToken::from_near(1));
+        contract.donate(id);
+        set_context("ngo.testnet", NearToken::from_yoctonear(0));
+        for _ in 0..MAX_MILESTONES {
+            contract.propose_milestone(id, "Plant native trees".to_string(), U128(1));
+        }
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            contract.propose_milestone(id, "Plant native trees".to_string(), U128(1));
+        }));
         assert!(result.is_err());
     }
 }

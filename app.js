@@ -256,7 +256,7 @@ async function loadIntentTokens(){
  }
 }
 function escrowCampaignCreator(){
- return `<section class="review-card campaign-creator" aria-labelledby="chainCampaignHeading"><div class="eyebrow">NEAR TESTNET · WALLET CONFIRMATION REQUIRED</div><h3 id="chainCampaignHeading">Create a testnet campaign</h3><p>This creates an on-chain campaign with the connected account as fixed recipient. New campaigns stay inactive until the contract reviewer approves them.</p><label for="chainCampaignTitle">CAMPAIGN TITLE</label><input id="chainCampaignTitle" maxlength="120" placeholder="At least 8 characters"><label for="chainCampaignDescription">DESCRIPTION</label><textarea id="chainCampaignDescription" rows="3" maxlength="2000" placeholder="At least 30 characters"></textarea><label for="chainCampaignMode">FUNDING MODEL</label><select id="chainCampaignMode"><option value="targeted">Campaign with a funding target</option><option value="ongoing">Ongoing fund · no target</option></select><div id="chainCampaignGoalField"><label for="chainCampaignGoal">FUNDING GOAL (NEAR)</label><input id="chainCampaignGoal" type="text" inputmode="decimal" value="1"></div><label for="chainCampaignHold">HOLD DONATIONS UNTIL</label><input id="chainCampaignHold" type="date" value="${isoDay(Date.now()+DAY_MS*90)}" min="${isoDay(Date.now()+DAY_MS*2)}" max="${isoDay(Date.now()+DAY_MS*365*3)}"><small>Donations close on this date and staked funds must be back in escrow before it. It cannot be extended.</small><button class="btn btn-primary" id="createChainCampaignBtn" type="button">Create on NEAR Testnet ↗</button><div id="chainCampaignCreateStatus" aria-live="polite"></div><small>Ongoing funds have no fundraising cap. Donations can continue after the staking threshold is met and while funds are staked. Staking uses a reviewer-maintained NEAR equivalent of $1,000; it is not a live USD price.</small></section>`;
+ return `<section class="review-card campaign-creator" aria-labelledby="chainCampaignHeading"><div class="eyebrow">NEAR TESTNET · WALLET CONFIRMATION REQUIRED</div><h3 id="chainCampaignHeading">Create a testnet campaign</h3><p>This creates an on-chain campaign with the connected account as fixed recipient. New campaigns stay inactive until the contract reviewer approves them.</p><label for="chainCampaignTitle">CAMPAIGN TITLE</label><input id="chainCampaignTitle" maxlength="120" placeholder="At least 8 characters"><label for="chainCampaignDescription">DESCRIPTION</label><textarea id="chainCampaignDescription" rows="3" maxlength="2000" placeholder="At least 30 characters"></textarea><label for="chainCampaignMode">FUNDING MODEL</label><select id="chainCampaignMode"><option value="targeted">Campaign with a funding target</option><option value="ongoing">Ongoing fund · no target</option></select><div id="chainCampaignGoalField"><label for="chainCampaignGoal">FUNDING GOAL (NEAR)</label><input id="chainCampaignGoal" type="text" inputmode="decimal" value="1"></div><label for="chainCampaignHold">HOLD DONATIONS UNTIL</label><input id="chainCampaignHold" type="date" value="${isoDay(Date.now()+DAY_MS*90)}" min="${isoDay(Date.now()+DAY_MS*2)}" max="${isoDay(Date.now()+DAY_MS*365*3)}"><small>Donations close on this date and staked funds must be back in escrow before it. It cannot be extended.</small><small>Creating a campaign attaches a 0.05 NEAR storage deposit; the contract keeps only the storage cost (≈0.003–0.025 NEAR) and refunds the rest.</small><button class="btn btn-primary" id="createChainCampaignBtn" type="button">Create on NEAR Testnet ↗</button><div id="chainCampaignCreateStatus" aria-live="polite"></div><small>Ongoing funds have no fundraising cap. Donations can continue after the staking threshold is met and while funds are staked. Staking uses a reviewer-maintained NEAR equivalent of $1,000; it is not a live USD price.</small></section>`;
 }
 
 const DAY_MS=86400000,STAKE_EXIT_BUFFER_MS=3*DAY_MS;
@@ -371,10 +371,10 @@ async function loadLiveLedger(){
  }catch(error){console.warn('Live ledger unavailable; showing sample ledger.',error);}
 }
 
-async function sendEscrowCall(methodName,args){
+async function sendEscrowCall(methodName,args,deposit='0'){
  if(!connectedAccount||!nearConnector)throw new Error('Connect the NEAR Testnet wallet first.');
  const wallet=await nearConnector.wallet();
- return wallet.signAndSendTransaction({receiverId:escrowContractId,actions:[{type:'FunctionCall',params:{methodName,args,gas:'150000000000000',deposit:'0'}}]});
+ return wallet.signAndSendTransaction({receiverId:escrowContractId,actions:[{type:'FunctionCall',params:{methodName,args,gas:'150000000000000',deposit}}]});
 }
 
 async function loadOnchainCampaign(){
@@ -492,7 +492,8 @@ $('#onchainCampaign').addEventListener('click',async e=>{
    const goal=$('#chainCampaignMode').value==='ongoing'?'0':nearToYocto($('#chainCampaignGoal').value);
    const hold_until_ms=dayToHoldMs($('#chainCampaignHold').value);
    if(hold_until_ms<Date.now()+DAY_MS)throw new Error('The hold date must be at least one day in the future.');
-   const result=await sendEscrowCall('create_campaign',{title,description,goal,hold_until_ms});
+   // Storage deposit: the contract keeps only what the campaign's storage costs and refunds the rest.
+   const result=await sendEscrowCall('create_campaign',{title,description,goal,hold_until_ms},'50000000000000000000000');
    status.innerHTML=`Campaign transaction submitted. Waiting for contract data…${txLink(result?.transaction?.hash)}`;
    await loadOnchainCampaign();
   }catch(error){status.textContent=`Campaign was not created: ${error.message}`;create.disabled=false;create.textContent='Try campaign creation again';}
