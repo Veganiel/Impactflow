@@ -125,6 +125,29 @@ ImpactFlow is a hackathon prototype on **Testnet**, not production donation infr
 3. Verifiable milestone evidence: hashed uploads and attestations from independent reviewers.
 4. Mainnet launch after an independent contract audit.
 
+## Hackathon notes
+
+- **Built during NEAR HACKATHON** (development 2–14 November 2026, after the announcement on 19 October). The GitHub repository was published on 13 November, so the earlier work appears in one import commit; the Testnet transactions above show the contract history from 2 November onward.
+- **Tracks:** 08 — Real-World Money (primary), 13 — Open Innovation.
+- **Testnet vs. mainnet:** the escrow runs on NEAR Testnet. NEAR Intents has no testnet, so the cross-chain flow uses Mainnet 1Click with dry quotes by default; real deposit instructions are opt-in and the user sends funds from their own wallet.
+
+### Built with
+
+| Component | Used for |
+|---|---|
+| [`near-sdk`](https://crates.io/crates/near-sdk) 5.30 (Rust) | Escrow smart contract and unit tests |
+| [`@hot-labs/near-connect`](https://www.npmjs.com/package/@hot-labs/near-connect) | Wallet selection and transaction signing |
+| [NEAR Intents 1Click API](https://docs.near-intents.org/) | Supported assets, quotes, deposit instructions, status |
+| [NEAR AI Cloud](https://cloud.near.ai/) | Project Readiness Agent (`z-ai/glm-5.3-flash`) |
+| [FastNEAR RPC](https://fastnear.com/) and [NearBlocks API](https://nearblocks.io/apis) | Testnet reads and the live activity ledger |
+| Express, cors, dotenv, Vite | Local API and front-end build |
+
+No boilerplate template was used.
+
+### AI assistance
+
+Parts of the code, tests and documentation were written with AI coding assistants, including Claude Code. Every change was reviewed and tested. The contract was deployed only after its state migration had been checked byte by byte against the live Testnet state.
+
 ## License
 
 [MIT](LICENSE)
