@@ -12,20 +12,24 @@ The escrow contract [`impactflow-escrow-xyz.testnet`](https://testnet.nearblocks
 
 | Step | Who signs | Transaction |
 |---|---|---|
-| 1. Create campaign | Project owner | [`Aw1hEF…`](https://testnet.nearblocks.io/txns/Aw1hEFnSKodjYBZVU3tNE8EEYGHb8G6rKqtUqwh2gDt5) |
+| 1. Create campaign | Project owner¹ | [`Aw1hEF…`](https://testnet.nearblocks.io/txns/Aw1hEFnSKodjYBZVU3tNE8EEYGHb8G6rKqtUqwh2gDt5) |
 | 2. Approve campaign | Reviewer | [`9EJWcc…`](https://testnet.nearblocks.io/txns/9EJWccZ4fjcBpMJg3tCQvbMaMzod6JZRdxWomgqiQL56) |
-| 3. Donate 0.01 NEAR into escrow | Donor | [`CpEdDs…`](https://testnet.nearblocks.io/txns/CpEdDspHcXWqD4pihxMB8xABMAjGcEYrbVFynhVATouC) |
-| 4. Propose milestone | Project owner | [`22zdjq…`](https://testnet.nearblocks.io/txns/22zdjqh5VveNad8384zfmQNZ6Y79N6p8wz7X2kTWxGu4) |
-| 5. Submit milestone evidence | Project owner | [`y37BpP…`](https://testnet.nearblocks.io/txns/y37BpPzz6ckH9wAfkM6C6gTHT1cGQp7hmkimeZeJhTm) |
+| 3. Donate 0.01 NEAR into escrow | Donor¹ | [`CpEdDs…`](https://testnet.nearblocks.io/txns/CpEdDspHcXWqD4pihxMB8xABMAjGcEYrbVFynhVATouC) |
+| 4. Propose milestone | Project owner¹ | [`22zdjq…`](https://testnet.nearblocks.io/txns/22zdjqh5VveNad8384zfmQNZ6Y79N6p8wz7X2kTWxGu4) |
+| 5. Submit milestone evidence | Project owner¹ | [`y37BpP…`](https://testnet.nearblocks.io/txns/y37BpPzz6ckH9wAfkM6C6gTHT1cGQp7hmkimeZeJhTm) |
 | 6. **Approve and release payout** | Reviewer | [`4cHHMk…`](https://testnet.nearblocks.io/txns/4cHHMkS8WauiwEX5Tsv26y9frNgq3Uhy3Lkruq3ZTzaT) |
 | Wallet-signed campaign + donations from a separate user account | `impactflow-daniel.testnet` | [`DVnp9B…`](https://testnet.nearblocks.io/txns/DVnp9BSFmFf6KqCnrgKCW8shTeDjFoGbejbxyYajUeMu), [`EUgDNS…`](https://testnet.nearblocks.io/txns/EUgDNS6P1fyLbduWN2XiTiUwuMBAfDtEjse5sWFWuteC) |
 | Upgrade to v2 (ongoing funds) + state-preserving migration | Contract / reviewer | [`5RtMdN…`](https://testnet.nearblocks.io/txns/5RtMdNWrsEk6LqxtN74raMkJiPwQR2HCLWWPCEspGSpT), [`3dTZFF…`](https://testnet.nearblocks.io/txns/3dTZFFnTPNLKWyiQbs5qStL9cb1HezjrydanfJD6hBPs) |
 | Upgrade to v3 (campaign hold dates) + state-preserving migration | Contract / reviewer | [`9dYo1D…`](https://testnet.nearblocks.io/txns/9dYo1DbiFxuZPWTmaH1YUUqccmJBuUEG8QivRKkyPRdW), [`HiCh4n…`](https://testnet.nearblocks.io/txns/HiCh4nkPasWq5zzRtfmHwmhgzMvaU273dvtohGSxExcE) |
 | Security hardening: storage deposit for new campaigns, milestone cap (code-only) | Contract | [`rMR4mW…`](https://testnet.nearblocks.io/txns/rMR4mWUopMhzErJ7EdGhg8LhKFf2CeiLQiSYvqu4YP7) |
 
+¹ In this first end-to-end run, the test account `impactflow-escrow-xyz.testnet` played both project owner and donor, and `impactflow-reviewer-xyz.testnet` was the reviewer. A separate user account, `impactflow-daniel.testnet`, later created its own campaign and donated through the wallet in the app (row 7).
+
 **The deployed code is the code in this repo.** The on-chain code hash `8wqUojNLmRQcWiYGsvr2hWYsvBU9Ytfxk9beB7Akdrym` matches a release build of [`contract/src/lib.rs`](contract/src/lib.rs). [Reproduce it below](#verify-the-deployed-contract).
 
-![Live on-chain campaigns read from NEAR Testnet](docs/screenshots/escrow-testnet.png)
+![Live on-chain campaigns read from NEAR Testnet, with the paid milestone and its evidence link](docs/screenshots/escrow-testnet.png)
+
+![Live ledger of escrow transactions, each linked to NearBlocks](docs/screenshots/live-ledger.png)
 
 ## What ImpactFlow does
 
@@ -56,7 +60,7 @@ Open <http://localhost:5173>. `dev:all` starts the API on port 8787 and the webs
 
 1. **Escrow (Explore section).** The two campaign cards are read live from the Testnet contract. Campaign #0 shows a milestone with status `paid`, the result of the payout transaction above.
 2. **Donate.** Select **Connect Testnet wallet**, then **Donate 0.01 NEAR** on an active campaign. The raised total updates from the contract.
-3. **Create a campaign.** Fill in **Create a testnet campaign**. It stays inactive until the reviewer account approves it.
+3. **Create a campaign.** Fill in **Create a testnet campaign**, including a hold date. The wallet attaches a 0.05 NEAR storage deposit; the contract keeps only the storage cost and refunds the rest. The campaign stays inactive until the reviewer account approves it.
 4. **Proof flow.** As the campaign owner, use **Propose milestone on-chain**, then paste a public HTTPS link and select **Submit evidence on-chain**. Connected as the reviewer, the milestone shows **Approve & release**, which pays the fixed recipient from escrow.
 5. **Live ledger.** In **See where every token goes**, every row is a real escrow transaction; click one to open it on NearBlocks.
 6. **Cross-chain.** Open **Cross-chain** and wait for the asset list. Pick two assets, enter recipient and refund addresses, then select **Get live quote preview**. This is a dry run, so no funds move.
