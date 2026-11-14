@@ -23,6 +23,19 @@ The escrow contract [`impactflow-escrow-xyz.testnet`](https://testnet.nearblocks
 | Upgrade to v3 (campaign hold dates) + state-preserving migration | Contract / reviewer | [`9dYo1D…`](https://testnet.nearblocks.io/txns/9dYo1DbiFxuZPWTmaH1YUUqccmJBuUEG8QivRKkyPRdW), [`HiCh4n…`](https://testnet.nearblocks.io/txns/HiCh4nkPasWq5zzRtfmHwmhgzMvaU273dvtohGSxExcE) |
 | Security hardening: storage deposit for new campaigns, milestone cap (code-only) | Contract | [`rMR4mW…`](https://testnet.nearblocks.io/txns/rMR4mWUopMhzErJ7EdGhg8LhKFf2CeiLQiSYvqu4YP7) |
 
+**Second full cycle on the current contract (v3.1), with three separate accounts (owner &amp; recipient, donor, reviewer).** Campaign #2 "Demo: Winter shelter for rescued dogs" has a hold date and paid a 0.05 NEAR storage deposit; a separate donor funded it, and the recipient received exactly 0.1 NEAR when the reviewer released the milestone:
+
+| Step | Account | Transaction |
+|---|---|---|
+| Create campaign with hold date (owner) | `impactflow-daniel.testnet` | [`AsDUSB…`](https://testnet.nearblocks.io/txns/AsDUSB2KmpMvxQuHYNufq9BvDofPQru86htkikYuagWz) |
+| Approve campaign (reviewer) | `impactflow-reviewer-xyz.testnet` | [`29pEhm…`](https://testnet.nearblocks.io/txns/29pEhmbBdAGHAjBdsXGbUWV7kMGxjf1FUX6Yn8ULd9Zp) |
+| Donate 0.3 NEAR (donor) | `impactflow-donor.testnet` | [`2pVTMR…`](https://testnet.nearblocks.io/txns/2pVTMRgaGaAF6m1EhJi3DSCv6z58Gk2Ywczb5SEEBpdw) |
+| Propose milestone (owner) | `impactflow-daniel.testnet` | [`CNuQia…`](https://testnet.nearblocks.io/txns/CNuQiazsx8AU3Z6ge4UTtkxUkydnJT1dbEPjSLw3YDyC) |
+| Submit evidence (owner) | `impactflow-daniel.testnet` | [`C4sHbx…`](https://testnet.nearblocks.io/txns/C4sHbxAKkz82LjHfsLBdh8h6c3FxNehAUcd7NJJo9erp) |
+| **Approve and release 0.1 NEAR (reviewer)** | `impactflow-reviewer-xyz.testnet` | [`9TmZdH…`](https://testnet.nearblocks.io/txns/9TmZdHyKJZNdvaY62tYzpJ5muE6cN5tiNw1a6UG8qsg) |
+
+These transactions were sent with NEAR CLI from the team's Testnet accounts; the same calls are available in the app through the wallet.
+
 ¹ In this first end-to-end run, the test account `impactflow-escrow-xyz.testnet` played both project owner and donor, and `impactflow-reviewer-xyz.testnet` was the reviewer. A separate user account, `impactflow-daniel.testnet`, later created its own campaign and donated through the wallet in the app (row 7).
 
 **The deployed code is the code in this repo.** The on-chain code hash `8wqUojNLmRQcWiYGsvr2hWYsvBU9Ytfxk9beB7Akdrym` matches a release build of [`contract/src/lib.rs`](contract/src/lib.rs). [Reproduce it below](#verify-the-deployed-contract).
